@@ -1,6 +1,6 @@
 {
-  "name": "pi webui",
-  "short_name": "pi",
+  "name": "Easy-Pi WebUI",
+  "short_name": "Easy-Pi WebUI",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -1,4 +1,4 @@
-# pi webui 下一阶段交接清单
+# easy-pi-webui 下一阶段交接清单
 
 写于 2026-11-11。**进度（2026-11-11）：阶段 A / B / C / D 已全部完成。** 给接手的 AI：这是一份实现清单，不是设计讨论。按顺序做，每阶段独立可用、可回滚。
 
@@ -286,8 +286,8 @@
 
 ```json
 {
-  "name": "pi webui",
-  "short_name": "pi",
+  "name": "Easy-Pi WebUI",
+  "short_name": "Easy-Pi WebUI",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -304,7 +304,7 @@
 
 ### Service Worker 策略（重点：不要造成“改了代码看不到”）
 
-- 缓存名带版本，例如 `pi-webui-v1`；`activate` 时删除旧版本。
+- 缓存名带版本，例如 `easy-pi-webui-v1`；`activate` 时删除旧版本。
 - **导航和静态资源用 network-first，失败才回退缓存**：
   - `request.mode === "navigate"` → `fetch` 失败时返回缓存的 `/index.html`
   - `/styles.css`、`/js/*.js`、`/logo.svg`、`/icons/*` 同样 network-first

@@ -139,7 +139,7 @@ const ALLOWED_COMMANDS = new Set([
 ]);
 
 function log(...args) {
-  console.log("[pi-webui]", ...args);
+  console.log("[easy-pi-webui]", ...args);
 }
 
 function piVersionString() {

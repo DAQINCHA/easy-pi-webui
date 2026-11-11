@@ -1,4 +1,4 @@
-/* pi webui Service Worker —— 只负责「外壳」，不碰数据。
+/* easy-pi-webui Service Worker —— 只负责「外壳」，不碰数据。
  *
  * 策略（故意这么选，别改成 cache-first）：
  * - 页面导航与外壳静态资源一律 network-first：先取网络，成功就顺手更新缓存，

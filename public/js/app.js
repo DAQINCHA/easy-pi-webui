@@ -360,7 +360,7 @@ function openWorkspacePicker() {
     : "";
   const hint = state.workspaceError
     ? '<div class="ws-menu-hint">启动提示：' + escapeHtml(state.workspaceError) + "</div>"
-    : '<div class="ws-menu-hint">这台电脑第一次使用 pi webui。选一个目录作为工作区，选择会保存在这台电脑上，以后自动记住。</div>';
+    : '<div class="ws-menu-hint">这台电脑第一次使用 Easy-Pi WebUI。选一个目录作为工作区，选择会保存在这台电脑上，以后自动记住。</div>';
 
   const modal = openModal({
     title: "选择工作目录",
@@ -615,7 +615,7 @@ function updateHeader() {
   const title = sessionTitle();
   el.title.textContent = title;
   if (el.brandVersion) el.brandVersion.textContent = ("Pi " + state.piVersion).trim();
-  document.title = title + " · Pi webui";
+  document.title = title + " · Easy-Pi WebUI";
 }
 
 const THINK_LABEL = {
@@ -2615,7 +2615,7 @@ function handleUiRequest(request) {
     return;
   }
   if (request.method === "setTitle") {
-    document.title = request.title || "Pi webui";
+    document.title = request.title || "Easy-Pi WebUI";
     return;
   }
   if (request.method === "set_editor_text") {
