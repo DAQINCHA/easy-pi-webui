@@ -587,6 +587,9 @@ html[data-mode="system"] .theme-mode-system { display: block; }
   display: grid; place-items: center;
 }
 .msg .avatar img { width: 100%; height: 100%; display: block; }
+/* 首个内容块是卡片时头像跟着下移：工具卡首行中心 = 卡上边距 8 + 头内边距 8 + 图标半高 12 = 28px，思考卡 = 4 + 8 + 9 = 21px；头像 26px 高，中心在 margin-top + 13。 */
+.msg.assistant.lead-tool .avatar { margin-top: 15px; }
+.msg.assistant.lead-think .avatar { margin-top: 8px; }
 .msg .body { flex: 1; min-width: 0; }
 
 .bubble {

@@ -978,10 +978,25 @@ function userNode(message, index, ctx = {}) {
   return node;
 }
 
+// 回复的第一个可见内容块是思考/工具卡片时，头像要下移对齐卡片首行（见 styles.css 的 lead-* 规则）。
+// 空的 text/thinking 块静态渲染时不会输出内容，判断时同样跳过。
+function leadAlignClass(blocks) {
+  for (const block of blocks || []) {
+    if (!block) continue;
+    if (block.type === "thinking") {
+      if (String(block.thinking || block.text || "").trim()) return " lead-think";
+      continue;
+    }
+    if (block.type === "toolCall") return " lead-tool";
+    if (block.type === "text" && String(block.text || "").trim()) return "";
+  }
+  return "";
+}
+
 function assistantNode(message, ctx = {}) {
   const node = document.createElement("div");
-  node.className = "msg assistant";
   const blocks = contentBlocks(message);
+  node.className = "msg assistant" + leadAlignClass(blocks);
   let html = '<div class="avatar"><img src="logo.svg" alt=""></div><div class="body">';
   for (const block of blocks) html += blockHtml(block, false);
   let footHtml = '<button class="action" type="button" data-act="copy-bot">' + ICON("copy") + "复制</button>";
@@ -1000,7 +1015,7 @@ function toolResultNode(message) {
     arguments: {},
   };
   const node = document.createElement("div");
-  node.className = "msg assistant";
+  node.className = "msg assistant lead-tool";
   node.innerHTML =
     '<div class="avatar"><img src="logo.svg" alt=""></div><div class="body">' +
     toolCardHtml(call, { content: message.content, isError: message.isError, durationMs: message.durationMs }) +
@@ -1285,6 +1300,7 @@ function renderLiveNow() {
   if (!body) return;
   const near = scrollNearBottom();
   body.innerHTML = liveHtml();
+  if (state.streamEl) state.streamEl.className = "msg assistant streaming" + leadAlignClass(state.live.blocks);
   if (near) scrollBottom(true);
 }
 
