@@ -108,10 +108,12 @@ Service Worker 只在**安全上下文**里工作：`http://127.0.0.1:30142`、`
 
 2026-11-11 重新做了一轮，解决「装出来的图标比旁边应用小一圈」和「页面内品牌图标有两个对不上的圆角框」两个问题：
 
-- **安装图标铺满画布**：`icon-192.png` / `icon-512.png` 改成画板满幅（圆角 22%，≈ 系统 squircle 弧度），图形比例跟 `apple-touch-icon-180.png` 对齐（约占画布 86%）。之前给 `any` 图标留了 10% 透明外边距，系统自己又会套一层遮罩，等于缩了两遍，所以在 Dock / 主屏上明显偏小。母图 `public/icons/logo-pwa.svg` 现在就是满幅版本。
-- **`maskable` 没动**：仍是满幅深底 + 图形约 52%，保证落在 Android 80% 安全圆内不被裁掉。
+- **四张安装图标统一用同一套满幅图稿**（母图 `public/icons/logo-pwa.svg`：画板铺满整张画布、圆角 22% ≈ 系统 squircle、图形占画布 80%）。`icon-192` / `icon-512` / `icon-512-maskable` / `apple-touch-icon-180` 都由它渲染，四张内容一致，系统挑哪张都一样。
+- **为什么必须满幅**：Safari 的「添加到程序坞」取的是 **`maskable` 那张**（实测 `~/Applications/<名字>.app/Contents/Resources/ApplicationIcon.icns`：紫点圆心 67.5%、直径 8.0%，正好等于 maskable 的 71.8% / 10.0% × 0.8），而 macOS 会把图稿缩到画布 80% 再套圆角遮罩。图稿自己再留 10% 透明边就是缩两遍，Dock 里明显比原生应用小一圈。
+- **为什么图形只到 80%**：这张同时当 `maskable` 用，Android 会按 80% 安全圆裁切；紫点最外缘离画布中心 48.6%（< 50%），圆形遮罩也切不到。图形再大就掉进不安全区了。
 - **页面内标记拆成 `public/icons/mark.svg`**：透明底，只有 π 和紫点，底色/圆角/描边全交给外层容器（`.brand-mark`、`.empty-mark`、`.msg .avatar`，底色统一用 `--brand-tile: #111113`）。`public/logo.svg` 留着给浏览器标签页的 favicon 用（它自带深色圆角底）。
 - **生成方式**：改 SVG 后，把 `<svg>` 标签补上 `width`/`height`（如 512）再用 `sips -s format png src.svg --out icon-512.png` 渲染；不补尺寸只会输出 64×64。QuickLook 会把透明压成白底，不能用。
+- **改完图标要重新添加一次**：Safari 把生成的图标固化在 `~/Applications/<名字>.app` 里，不会自己重画；把程序坞里那个删掉、重新「添加到程序坞」才会用新图。
 
 ## 目录
 
