@@ -363,10 +363,12 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 }
 
 .session-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
-  padding: 7px 80px 7px 10px;
+  padding: 7px 10px;
   border-radius: 9px;
   margin-bottom: 1px;
   position: relative;
@@ -385,7 +387,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   border-radius: 2px;
   background: var(--accent);
 }
-.session-item .row { display: flex; align-items: center; gap: 6px; }
+.session-item .row { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
 .session-item .t {
   flex: 1;
   min-width: 0;
@@ -397,12 +399,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   text-overflow: ellipsis;
 }
 .session-item.active .t { color: var(--text-1); font-weight: 500; }
-/* 时间戳固定在右侧那一格，和悬停时出现的按钮共用一个位置，互不挤占。 */
+/* 时间戳就在标题后面跟着，标题用剩下的全部宽度；悬停时让位给操作按钮。 */
 .session-item .m {
-  position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
+  flex: none;
   max-width: 72px;
   font-size: 11px;
   color: var(--text-4);
@@ -461,15 +460,23 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .session-action.more { right: 52px; }
 /* 已归档的会话只有「…」，贴右边放，不要空出另外两个按钮的位置 */
 .session-wrap.archived .session-action.more { right: 4px; }
-/* 置顶会话的图钉常显（鼠标移开也不消失），时间戳往左让出这一格 */
+/* 置顶会话的图钉常显（鼠标移开也不消失），右侧给它留一格 */
 .session-wrap.pinned .session-action.pin { opacity: 1; }
-.session-wrap.pinned .session-item .m { right: 28px; max-width: 48px; }
-/* 悬停：露出置顶/归档，时间戳让出同一格 */
+.session-wrap.pinned .session-item { padding-right: 28px; }
+/* 悬停：露出置顶/归档，标题给按钮腾地方（时间戳让位） */
 .session-wrap:hover .session-action { opacity: 1; }
-.session-wrap:hover .session-item .m { opacity: 0; }
-/* 正在跑的会话不给操作按钮（包括「…」），时间戳也就保持可见 */
+.session-wrap:hover .session-item { padding-right: 76px; }
+.session-wrap:hover .session-item .m { display: none; }
+/* 已归档的行只有一个「…」，只需要让出一格 */
+.session-wrap:hover.archived .session-item { padding-right: 28px; }
+/* 正在跑的会话不给操作按钮（包括「…」），也就不需要腾地方，时间戳保持可见 */
 .session-wrap.running .session-action { opacity: 0; pointer-events: none; }
-.session-wrap.running .session-item .m { opacity: 1; }
+.session-wrap.running .session-item,
+.session-wrap.running:hover .session-item { padding-right: 10px; }
+.session-wrap.running.pinned .session-item,
+.session-wrap.running.pinned:hover .session-item { padding-right: 28px; }
+.session-wrap.running .session-item .m,
+.session-wrap.running:hover .session-item .m { display: block; }
 .session-action.pin svg { transform: rotate(45deg); }
 .session-action.pin.on { color: var(--text-2); }
 .session-action.pin.on svg { fill: currentColor; }
@@ -480,9 +487,13 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 @media (hover: none) {
   /* 触屏没有悬停：操作按钮常显、时间戳让位；正在跑的会话反过来。 */
   .session-action { opacity: 1; }
-  .session-item .m { opacity: 0; }
+  .session-item { padding-right: 76px; }
+  .session-item .m { display: none; }
+  .session-wrap.archived .session-item { padding-right: 28px; }
   .session-wrap.running .session-action { opacity: 0; pointer-events: none; }
-  .session-wrap.running .session-item .m { opacity: 1; }
+  .session-wrap.running .session-item { padding-right: 10px; }
+  .session-wrap.running.pinned .session-item { padding-right: 28px; }
+  .session-wrap.running .session-item .m { display: block; }
 }
 
 .session-group-label.archived-toggle {
