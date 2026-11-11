@@ -21,7 +21,6 @@ const el = {
   title: $("sessionTitle"),
   brandVersion: $("brandVersion"),
   notifyBtn: $("notifyBtn"),
-  installBtn: $("installBtn"),
   thread: $("thread"),
   messages: $("messages"),
   empty: $("emptyState"),
@@ -98,7 +97,6 @@ const state = {
   slash: null,
   activity: "",
   railActive: null,
-  installPrompt: null,
 };
 
 const ICON = (name) => '<svg aria-hidden="true"><use href="#i-' + name + '"/></svg>';
@@ -1252,7 +1250,7 @@ function turnNodes(turn, ctx) {
     const node = document.createElement("div");
     node.className = "msg assistant" + (ctx.refresh ? " refresh" : "");
     node.setAttribute("data-turn", String(turn.index));
-    let html = '<div class="avatar"><img src="logo.svg" alt=""></div><div class="body">';
+    let html = '<div class="avatar"><img src="icons/mark.svg" alt=""></div><div class="body">';
     if (chunk.other) {
       node.classList.add("lead-tool");
       html += otherHtml(chunk.other);
@@ -1891,34 +1889,6 @@ function registerServiceWorker() {
   if (!secure) return;
   // 只在这里注册一次；失败不影响页面其他功能。
   navigator.serviceWorker.register("/sw.js").catch(() => {});
-}
-
-function setupInstallPrompt() {
-  window.addEventListener("beforeinstallprompt", (event) => {
-    // 先接管，避免浏览器自己弹一条提示；改由顶部的安装按钮触发。
-    event.preventDefault();
-    state.installPrompt = event;
-    if (el.installBtn) el.installBtn.hidden = false;
-  });
-  window.addEventListener("appinstalled", () => {
-    state.installPrompt = null;
-    if (el.installBtn) el.installBtn.hidden = true;
-    toast("已安装到桌面");
-  });
-}
-
-async function promptInstall() {
-  const prompt = state.installPrompt;
-  if (!prompt) return;
-  state.installPrompt = null;
-  if (el.installBtn) el.installBtn.hidden = true;
-  try {
-    prompt.prompt();
-    const choice = await prompt.userChoice;
-    if (choice && choice.outcome === "accepted") toast("正在安装…");
-  } catch {
-    toast("安装失败", "error");
-  }
 }
 
 async function refreshStats() {
@@ -3193,7 +3163,6 @@ function bindEvents() {
   el.notifyBtn.addEventListener("click", () => {
     toggleNotify().finally(updateNotifyBtn);
   });
-  el.installBtn.addEventListener("click", () => promptInstall());
   el.workspaceChip.addEventListener("click", () => (state.needsWorkspace ? openWorkspacePicker() : openWorkspaceMenu()));
   el.emptyPickBtn.addEventListener("click", openWorkspacePicker);
   el.modelChip.addEventListener("click", () => openModelMenu(el.modelChip));
@@ -3445,7 +3414,6 @@ function bindEvents() {
 
 async function boot() {
   bindEvents();
-  setupInstallPrompt();
   registerServiceWorker();
   initSidebarResizer();
 
