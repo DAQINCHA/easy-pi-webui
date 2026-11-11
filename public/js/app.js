@@ -1380,6 +1380,7 @@ async function newSession() {
   connectStream();
   markSeen(true);
   el.input.focus();
+  await applySavedDefaults();
 }
 
 function connectStream() {
@@ -2221,6 +2222,90 @@ function openModelMenu(anchor) {
   openMenu(anchor, items, { align: "left", preferUp: true, above: el.composer });
 }
 
+/* ---------- 记住上次选用的模型与思考强度 ---------- */
+/* pi 的 RPC 接口 set_model / set_thinking_level 不写全局默认值，
+ * 所以新建会话时总会回到模型默认（思考强度是 high）。
+ * 这里在浏览器本地存一份，新建会话后自己套用回去。 */
+
+const MODEL_PREF_KEY = "piwebui.model";
+const THINK_PREF_KEY = "piwebui.thinkingLevel";
+
+function readModelPref() {
+  try {
+    const raw = localStorage.getItem(MODEL_PREF_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.provider && parsed.id ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeModelPref(model) {
+  if (!model || !model.provider || !model.id) return;
+  try {
+    localStorage.setItem(MODEL_PREF_KEY, JSON.stringify({ provider: model.provider, id: model.id }));
+  } catch {
+    /* ignore */
+  }
+}
+
+function readThinkPref() {
+  try {
+    return localStorage.getItem(THINK_PREF_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeThinkPref(level) {
+  try {
+    localStorage.setItem(THINK_PREF_KEY, level);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 新建会话后套用上次选用的模型和思考强度；失败就保持 pi 的默认值。 */
+async function applySavedDefaults() {
+  if (!state.key) return;
+  const wanted = readModelPref();
+  if (wanted && state.models.some((model) => model.provider === wanted.provider && model.id === wanted.id)) {
+    const same = state.model && state.model.provider === wanted.provider && state.model.id === wanted.id;
+    if (!same) {
+      try {
+        const result = await api("/api/command", {
+          key: state.key,
+          command: { type: "set_model", provider: wanted.provider, modelId: wanted.id },
+        });
+        if (result.success !== false) {
+          state.model = result.data && result.data.id ? result.data : wanted;
+          // 切模型会把思考强度重置成模型默认档，重新取一次可用档位
+          state.thinkingLevels = await loadThinkingLevels();
+        }
+      } catch {
+        /* 模型不可用就保持默认 */
+      }
+    }
+  }
+
+  const level = readThinkPref();
+  const levels = state.thinkingLevels || [];
+  if (level && level !== state.thinkingLevel && levels.includes(level)) {
+    try {
+      const result = await api("/api/command", {
+        key: state.key,
+        command: { type: "set_thinking_level", level },
+      });
+      if (result.success !== false) state.thinkingLevel = level;
+    } catch {
+      /* 档位不被支持就保持默认 */
+    }
+  }
+
+  updateChips();
+}
+
 async function selectModel(model) {
   if (!state.key) return;
   try {
@@ -2233,6 +2318,7 @@ async function selectModel(model) {
       return;
     }
     state.model = result.data && result.data.id ? result.data : model;
+    writeModelPref(state.model);
     state.thinkingLevels = await loadThinkingLevels();
     updateChips();
     toast("已切换到 " + (state.model.name || state.model.id));
@@ -2270,7 +2356,7 @@ function openContextMenu(anchor) {
       { info: ["累计 tokens", fmtTokens(tokens.total)] },
       { info: ["费用", fmtCost(stats.cost)] },
       { sep: true },
-      { label: "刷新", icon: "refresh", onClick: () => refreshStats() },
+      { label: "压缩上下文", icon: "refresh", onClick: () => compactSession() },
     ],
     { align: "left", preferUp: true, above: el.composer },
   );
@@ -2302,6 +2388,7 @@ async function selectThink(level) {
       return;
     }
     state.thinkingLevel = level;
+    writeThinkPref(level);
     updateChips();
   } catch (error) {
     toast("切换思考深度失败：" + error.message, "error");
@@ -2375,26 +2462,10 @@ async function setArchived(file, archived) {
 function openMoreMenu(anchor) {
   const current = currentSessionMeta();
   const items = [];
-  if (current) {
-    items.push({
-      label: current.archived ? "取消归档" : "归档会话",
-      icon: "archive",
-      onClick: () => setArchived(current.file, !current.archived),
-    });
-    items.push({ sep: true });
-  }
   items.push(
-    { label: "重命名会话", icon: "edit", onClick: () => renameSession() },
-    { label: "压缩上下文", icon: "refresh", onClick: () => compactSession() },
-    { label: "刷新会话", icon: "refresh", onClick: () => resync() },
-    { label: "完成时通知", icon: "bolt", active: readNotifyPref(), onClick: () => toggleNotify() },
-  );
-  // 只有浏览器给了安装事件、且当前不是已安装的独立窗口时才显示。
-  if (state.installPrompt && !isStandalone()) {
-    items.push({ label: "安装到桌面", icon: "down", onClick: () => promptInstall() });
-  }
-  items.push(
+    { label: "完成时通知", icon: "bell", active: readNotifyPref(), onClick: () => toggleNotify() },
     { sep: true },
+    { label: "重命名会话", icon: "edit", onClick: () => renameSession() },
     {
       label: "复制会话 ID",
       icon: "copy",
@@ -2408,6 +2479,20 @@ function openMoreMenu(anchor) {
       },
     },
   );
+  // 只有浏览器给了安装事件、且当前不是已安装的独立窗口时才显示。
+  if (state.installPrompt && !isStandalone()) {
+    items.push({ label: "安装到桌面", icon: "down", onClick: () => promptInstall() });
+  }
+  if (current) {
+    items.push(
+      { sep: true },
+      {
+        label: current.archived ? "取消归档" : "归档会话",
+        icon: "archive",
+        onClick: () => setArchived(current.file, !current.archived),
+      },
+    );
+  }
   openMenu(anchor, items, { align: "right" });
 }
 
