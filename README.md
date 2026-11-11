@@ -1,4 +1,4 @@
-# new-pi-webui
+# easy-pi-webui
 
 给 [pi](https://pi.dev) 做的一个网页界面。外观照着 CodeBuddy Code 的 web-ui 做（纯黑背景、细边框、会话侧栏、工具卡片），底层用 pi 自己的 RPC 模式跑真实的 pi 会话。
 
@@ -9,13 +9,13 @@
 前提：Node.js 22.19 或更新，并且已经装好、登录过 pi（终端里 `pi --version` 有输出）。
 
 ```bash
-cd node-server/new-pi-webui
+cd node-server/easy-pi-webui
 npm start
 ```
 
-然后打开 <http://127.0.0.1:30142>。macOS 下也可以直接双击 `启动 Pi WebUI.command`（它会起服务并帮你打开网页）。
+然后打开 <http://127.0.0.1:30142>。macOS 下也可以直接双击 `启动 easy-pi-webui.command`（它会起服务并帮你打开网页）。
 
-工作目录按下面的优先级决定，**每台电脑各自记住自己的选择**，配置写在 `~/.config/new-pi-webui/settings.json`（不在 iCloud、不碰 `~/.pi`）：
+工作目录按下面的优先级决定，**每台电脑各自记住自己的选择**，配置写在 `~/.config/easy-pi-webui/settings.json`（不在 iCloud、不碰 `~/.pi`）：
 
 1. 命令行 `--workspace /path`
 2. 环境变量 `PI_WORKSPACE`
@@ -72,7 +72,7 @@ npm start
 ## 停止与退出
 
 - 前台 `npm start` / `node server.js`：按 `Ctrl + C`（SIGINT），或直接发 `SIGTERM` / `SIGHUP`，都会走同一套清理。
-- 双击 `启动 Pi WebUI.command`：关掉那个终端窗口、按 `Ctrl + C`、或终端断开导致的 HUP 都会触发清理；脚本只向自己记录的那个服务进程转发信号，不会按端口杀进程、不会误杀别的 pi 或 node。
+- 双击 `启动 easy-pi-webui.command`：关掉那个终端窗口、按 `Ctrl + C`、或终端断开导致的 HUP 都会触发清理；脚本只向自己记录的那个服务进程转发信号，不会按端口杀进程、不会误杀别的 pi 或 node。
 - 退出时会停止接收新请求、关掉 SSE、回收所有 pi 子进程和自动命名子进程（先 TERM，必要时 KILL，有超时兜底），确认退出后才结束。重复发信号不会重复清理。
 - **不会**因为关闭标签页、刷新页面就杀掉正在跑的任务；断页继续和 15 分钟闲置回收保持原样。
 - 限制：`SIGKILL`、系统崩溃、断电无法捕获；没有设计进程组，因此不保证 pi 自己派生的任意孙进程全部被回收；也不会去碰你独立开的命令行 pi。
@@ -108,7 +108,7 @@ Service Worker 只在**安全上下文**里工作：`http://127.0.0.1:30142`、`
 ## 目录
 
 ```
-new-pi-webui/
+easy-pi-webui/
 ├── server.js            HTTP + SSE 服务
 ├── lib/
 │   ├── pi-bridge.js     pi 子进程、JSONL 分帧、事件回放
@@ -124,5 +124,5 @@ new-pi-webui/
 │   └── js/
 │       ├── app.js       会话、流式渲染、菜单、弹窗
 │       └── markdown.js  无依赖 Markdown 渲染 + 轻量高亮
-└── 启动 Pi WebUI.command
+└── 启动 easy-pi-webui.command
 ```

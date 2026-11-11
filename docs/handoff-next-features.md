@@ -4,9 +4,9 @@
 
 ## 0. 先读这些
 
-- 项目：`node-server/new-pi-webui`
+- 项目：`node-server/easy-pi-webui`
 - 技术栈：原生 Node（`node:http` / `fs` / `child_process`）+ 原生 HTML/CSS/JS。**零 npm 依赖、无构建步骤**。
-- 运行：`cd node-server/new-pi-webui && npm start`（或双击 `启动 Pi WebUI.command`），默认端口 30142。工作目录不再由启动命令固定，按「`--workspace` > `PI_WORKSPACE` > 本机保存 > 页面首次选择」决定；本机配置在 `~/.config/new-pi-webui/settings.json`。
+- 运行：`cd node-server/easy-pi-webui && npm start`（或双击 `启动 easy-pi-webui.command`），默认端口 30142。工作目录不再由启动命令固定，按「`--workspace` > `PI_WORKSPACE` > 本机保存 > 页面首次选择」决定；本机配置在 `~/.config/easy-pi-webui/settings.json`。
 - 结构：
   - `server.js`：HTTP/SSE、会话桥管理、自动命名、归档、删除
   - `lib/pi-bridge.js`：`pi --mode rpc` 子进程、JSONL 分帧、事件回放、主动/被动退出标记
@@ -354,7 +354,7 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
 每个阶段结束都要：
 
 ```bash
-cd node-server/new-pi-webui
+cd node-server/easy-pi-webui
 npm run check
 ```
 
@@ -391,7 +391,7 @@ npm run check
 
 ## 给新 AI 的开场提示词（可直接粘贴）
 
-> 你在 `node-server/new-pi-webui` 里实现下一阶段功能。先读 `docs/handoff-next-features.md` 和仓库根 `AGENTS.md`，再读 `server.js`、`lib/pi-bridge.js`、`lib/sessions.js`、`public/js/app.js`。
+> 你在 `node-server/easy-pi-webui` 里实现下一阶段功能。先读 `docs/handoff-next-features.md` 和仓库根 `AGENTS.md`，再读 `server.js`、`lib/pi-bridge.js`、`lib/sessions.js`、`public/js/app.js`。
 >
 > 阶段 A / B / C 已完成，不要重做；接下来只做阶段 D（PWA）。每个阶段完成后运行 `npm run check`，并用无头 Chrome 按验收项实际点一遍（截图、量尺寸、收控制台报错）。这是原生 JS + 零依赖项目，不要添加任何 npm 包或构建步骤。
 >

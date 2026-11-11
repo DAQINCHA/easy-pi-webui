@@ -17,7 +17,7 @@ const DATA_DIR = join(HERE, "data");
 const ARCHIVE_FILE = join(DATA_DIR, "archived.json");
 
 // 每台电脑自己的配置，不放 iCloud、不放 ~/.pi，避免污染 pi 的真实设置与凭据。
-const CONFIG_DIR = join(homedir(), ".config", "new-pi-webui");
+const CONFIG_DIR = join(homedir(), ".config", "easy-pi-webui");
 const CONFIG_FILE = join(CONFIG_DIR, "settings.json");
 
 function readSettings() {
