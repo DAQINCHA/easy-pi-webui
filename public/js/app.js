@@ -86,7 +86,6 @@ const state = {
   attachments: [],
   filter: "",
   archivedOpen: false,
-  pinnedOpen: true,
   menuAnchor: null,
   es: null,
   statusEs: null,
@@ -292,26 +291,14 @@ function renderSessions() {
   const archived = list.filter((session) => session.archived);
 
   let html = "";
-  if (pinned.length) {
-    const open = state.pinnedOpen || Boolean(query);
-    html +=
-      '<button class="session-group-label group-toggle' + (open ? " open" : "") + '" type="button" data-toggle-pinned>' +
-      "<span>已置顶</span>" +
-      '<span class="count">' + pinned.length + "</span>" +
-      '<span class="chev">' + ICON("right") + "</span>" +
-      "</button>";
-    if (open) {
-      for (const session of pinned) html += sessionItemHtml(session);
-    }
-  }
-  if (active.length) {
-    for (const session of active) html += sessionItemHtml(session);
-  }
+  // 置顶不再单独分组：仍然排在最前，靠常显的图钉识别。
+  for (const session of pinned) html += sessionItemHtml(session);
+  for (const session of active) html += sessionItemHtml(session);
 
   if (archived.length) {
     const open = state.archivedOpen || Boolean(query);
     html +=
-      '<button class="session-group-label group-toggle' + (open ? " open" : "") + '" type="button" data-toggle-archive>' +
+      '<button class="session-group-label archived-toggle' + (open ? " open" : "") + '" type="button" data-toggle-archive>' +
       "<span>已归档</span>" +
       '<span class="count">' + archived.length + "</span>" +
       '<span class="chev">' + ICON("right") + "</span>" +
@@ -3154,13 +3141,6 @@ function bindEvents() {
     const toggle = event.target.closest("[data-toggle-archive]");
     if (toggle) {
       state.archivedOpen = !state.archivedOpen;
-      renderSessions();
-      return;
-    }
-
-    const pinnedToggle = event.target.closest("[data-toggle-pinned]");
-    if (pinnedToggle) {
-      state.pinnedOpen = !state.pinnedOpen;
       renderSessions();
       return;
     }

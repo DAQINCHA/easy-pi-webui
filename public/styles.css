@@ -461,6 +461,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .session-action.more { right: 52px; }
 /* 已归档的会话只有「…」，贴右边放，不要空出另外两个按钮的位置 */
 .session-wrap.archived .session-action.more { right: 4px; }
+/* 置顶会话的图钉常显（鼠标移开也不消失），时间戳往左让出这一格 */
+.session-wrap.pinned .session-action.pin { opacity: 1; }
+.session-wrap.pinned .session-item .m { right: 28px; max-width: 48px; }
 /* 悬停：露出置顶/归档，时间戳让出同一格 */
 .session-wrap:hover .session-action { opacity: 1; }
 .session-wrap:hover .session-item .m { opacity: 0; }
@@ -482,7 +485,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   .session-wrap.running .session-item .m { opacity: 1; }
 }
 
-.session-group-label.group-toggle {
+.session-group-label.archived-toggle {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -493,16 +496,16 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   padding: 8px 10px;
   margin-top: 6px;
 }
-.session-group-label.group-toggle:hover { background: var(--bg-hover); }
-.group-toggle .count { color: var(--text-4); font-size: 10.5px; }
-.group-toggle .chev {
+.session-group-label.archived-toggle:hover { background: var(--bg-hover); }
+.archived-toggle .count { color: var(--text-4); font-size: 10.5px; }
+.archived-toggle .chev {
   margin-left: auto;
   display: grid;
   place-items: center;
   transition: transform .2s var(--ease);
 }
-.group-toggle .chev svg { width: 12px; height: 12px; }
-.group-toggle.open .chev { transform: rotate(90deg); }
+.archived-toggle .chev svg { width: 12px; height: 12px; }
+.archived-toggle.open .chev { transform: rotate(90deg); }
 
 .session-empty {
   padding: 28px 12px;
