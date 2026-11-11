@@ -333,6 +333,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .session-action svg { width: 14px; height: 14px; }
 .session-wrap:hover .session-action { opacity: 1; }
 .session-action:hover { background: var(--bg-elev-3); color: var(--text-1); }
+.session-action.pin { right: 28px; }
+.session-action.pin.on { color: var(--text-2); }
 .session-wrap.archived .session-item { opacity: .6; }
 .session-wrap.archived .session-item:hover,
 .session-wrap.archived .session-item.active { opacity: 1; }

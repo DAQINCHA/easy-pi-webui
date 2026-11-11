@@ -15,6 +15,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(HERE, "public");
 const DATA_DIR = join(HERE, "data");
 const ARCHIVE_FILE = join(DATA_DIR, "archived.json");
+const PINNED_FILE = join(DATA_DIR, "pinned.json");
 
 // 每台电脑自己的配置，不放 iCloud、不放 ~/.pi，避免污染 pi 的真实设置与凭据。
 const CONFIG_DIR = join(homedir(), ".config", "easy-pi-webui");
@@ -173,14 +174,34 @@ function writeArchive(map) {
   }
 }
 
+function readPinned() {
+  try {
+    const parsed = JSON.parse(readFileSync(PINNED_FILE, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writePinned(map) {
+  try {
+    mkdirSync(DATA_DIR, { recursive: true });
+    writeFileSync(PINNED_FILE, JSON.stringify(map, null, 2), "utf8");
+  } catch (error) {
+    log("pinned write failed:", error.message);
+  }
+}
+
 function getSessions() {
   if (!workspace) return [];
   const now = Date.now();
   if (now - sessionCache.at < 2500) return sessionCache.list;
   const archive = readArchive();
+  const pinned = readPinned();
   const list = listSessions(workspace).map((session) => ({
     ...session,
     archived: Boolean(archive[session.file]),
+    pinned: Boolean(pinned[session.file]),
   }));
   sessionCache = { at: now, list };
   return list;
@@ -731,11 +752,31 @@ async function handleApi(req, res, url) {
     if (!isSessionFile(body.file, workspace)) return json(res, 400, { error: "invalid session file" });
     const target = resolve(body.file);
     const archive = readArchive();
-    if (body.archived) archive[target] = new Date().toISOString();
-    else delete archive[target];
+    if (body.archived) {
+      archive[target] = new Date().toISOString();
+      // 归档的会话不再占置顶位。
+      const pinned = readPinned();
+      if (pinned[target]) {
+        delete pinned[target];
+        writePinned(pinned);
+      }
+    } else {
+      delete archive[target];
+    }
     writeArchive(archive);
     sessionCache.at = 0;
     return json(res, 200, { archived: Boolean(body.archived) });
+  }
+
+  if (path === "/api/pin") {
+    if (!isSessionFile(body.file, workspace)) return json(res, 400, { error: "invalid session file" });
+    const target = resolve(body.file);
+    const pinned = readPinned();
+    if (body.pinned) pinned[target] = new Date().toISOString();
+    else delete pinned[target];
+    writePinned(pinned);
+    sessionCache.at = 0;
+    return json(res, 200, { pinned: Boolean(body.pinned) });
   }
 
   if (path === "/api/session/delete") {
@@ -745,6 +786,11 @@ async function handleApi(req, res, url) {
     if (archive[target]) {
       delete archive[target];
       writeArchive(archive);
+    }
+    const pinned = readPinned();
+    if (pinned[target]) {
+      delete pinned[target];
+      writePinned(pinned);
     }
     const doomed = [];
     for (const [key, bridge] of bridges) {

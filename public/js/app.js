@@ -243,8 +243,9 @@ function sessionItemHtml(session) {
   const errored = !running && Boolean(runtime && runtime.errored);
   const unread = !running && !errored && Boolean(runtime && runtime.unread);
   const label = session.name || session.title;
+  const pinned = Boolean(session.pinned) && !session.archived;
   return (
-    '<div class="session-wrap' + (session.archived ? " archived" : "") + '">' +
+    '<div class="session-wrap' + (session.archived ? " archived" : "") + (pinned ? " pinned" : "") + '">' +
     '<button class="session-item' + (active ? " active" : "") + '" data-file="' + escapeHtml(session.file) + '">' +
     '<span class="row"><span class="t">' + escapeHtml(label) + "</span>" +
     (running
@@ -261,7 +262,11 @@ function sessionItemHtml(session) {
       ? '<button class="session-action" type="button" data-menu-file="' + escapeHtml(session.file) + '" title="会话操作" aria-label="会话操作">' +
         ICON("dots") +
         "</button>"
-      : '<button class="session-action" type="button" data-archive-file="' + escapeHtml(session.file) + '" title="归档会话" aria-label="归档会话">' +
+      : '<button class="session-action pin' + (pinned ? " on" : "") + '" type="button" data-pin-file="' + escapeHtml(session.file) +
+        '" title="' + (pinned ? "取消置顶" : "置顶会话") + '" aria-label="' + (pinned ? "取消置顶" : "置顶会话") + '">' +
+        ICON("pin") +
+        "</button>" +
+        '<button class="session-action" type="button" data-archive-file="' + escapeHtml(session.file) + '" title="归档会话" aria-label="归档会话">' +
         ICON("archive") +
         "</button>") +
     "</div>"
@@ -283,10 +288,15 @@ function renderSessions() {
     return;
   }
 
-  const active = list.filter((session) => !session.archived);
+  const pinned = list.filter((session) => session.pinned && !session.archived);
+  const active = list.filter((session) => !session.archived && !session.pinned);
   const archived = list.filter((session) => session.archived);
 
   let html = "";
+  if (pinned.length) {
+    html += '<div class="session-group-label">已置顶</div>';
+    for (const session of pinned) html += sessionItemHtml(session);
+  }
   if (active.length) {
     const groups = new Map();
     for (const session of active) {
@@ -2471,6 +2481,17 @@ async function setArchived(file, archived) {
   }
 }
 
+async function setPinned(file, pinned) {
+  if (!file) return;
+  try {
+    await api("/api/pin", { file, pinned });
+    toast(pinned ? "已置顶" : "已取消置顶");
+    await refreshSessions();
+  } catch (error) {
+    toast("操作失败：" + error.message, "error");
+  }
+}
+
 function openMoreMenu(anchor) {
   const current = currentSessionMeta();
   const items = [];
@@ -2785,8 +2806,8 @@ function openThemeMenu(anchor) {
   openMenu(
     anchor,
     [
-      { label: "深色", icon: "moon", active: current === "dark", onClick: () => applyTheme("dark") },
       { label: "浅色", icon: "sun", active: current === "light", onClick: () => applyTheme("light") },
+      { label: "深色", icon: "moon", active: current === "dark", onClick: () => applyTheme("dark") },
       { label: "跟随系统", icon: "monitor", active: current === "system", onClick: () => applyTheme("system") },
     ],
     { align: "right" },
@@ -2889,6 +2910,15 @@ function bindEvents() {
     if (toggle) {
       state.archivedOpen = !state.archivedOpen;
       renderSessions();
+      return;
+    }
+
+    const pinButton = event.target.closest("[data-pin-file]");
+    if (pinButton) {
+      event.stopPropagation();
+      const file = pinButton.getAttribute("data-pin-file");
+      const session = state.sessions.find((item) => item.file === file);
+      setPinned(file, !(session && session.pinned));
       return;
     }
 
