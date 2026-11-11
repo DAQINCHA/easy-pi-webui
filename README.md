@@ -106,6 +106,8 @@ Service Worker 只在**安全上下文**里工作：`http://127.0.0.1:30142`、`
 
 上述运行图标已换成文艺 Bot 提供的实图。母图 `pi-icon-master-1024.png` 和预览/源文件不进项目运行目录。`index.html` 的 Apple Touch 已指向 `apple-touch-icon-180.png`。
 
+2026-11-11 从 `public/icons/logo-pwa.svg` 重新生成过一轮：`any` 三张把图形放大到约占画布 85% 宽（修掉装到桌面 / 主屏后比别的应用图标小一圈的问题），`maskable` 保持图形约 52% 的安全区留白，四张都是全幅不透明黑底、四边无白边。
+
 ## 目录
 
 ```
