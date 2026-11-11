@@ -366,7 +366,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   display: block;
   width: 100%;
   text-align: left;
-  padding: 7px 56px 7px 10px;
+  padding: 7px 80px 7px 10px;
   border-radius: 9px;
   margin-bottom: 1px;
   position: relative;
@@ -403,7 +403,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   right: 4px;
   top: 50%;
   transform: translateY(-50%);
-  max-width: 52px;
+  max-width: 72px;
   font-size: 11px;
   color: var(--text-4);
   white-space: nowrap;
@@ -411,6 +411,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   text-overflow: ellipsis;
   transition: opacity .15s var(--ease);
 }
+/* 列表刚重建时先不播过渡，否则新节点要等下一帧才匹配 :hover，图标会淡入闪一下 */
+.session-scroll.no-fade .session-action,
+.session-scroll.no-fade .session-item .m { transition: none; }
 .session-spin {
   width: 11px;
   height: 11px;
@@ -452,13 +455,17 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 }
 .session-action svg { width: 14px; height: 14px; }
 .session-action:hover { background: var(--bg-elev-3); color: var(--text-1); }
-.session-action.pin { right: 28px; }
+/* 三个按钮从右到左：置顶、归档、「…」 */
+.session-action.pin { right: 4px; }
+.session-action.archive { right: 28px; }
+.session-action.more { right: 52px; }
+/* 已归档的会话只有「…」，贴右边放，不要空出另外两个按钮的位置 */
+.session-wrap.archived .session-action.more { right: 4px; }
 /* 悬停：露出置顶/归档，时间戳让出同一格 */
 .session-wrap:hover .session-action { opacity: 1; }
 .session-wrap:hover .session-item .m { opacity: 0; }
-/* 正在跑的会话不给操作按钮，时间戳也就保持可见 */
-.session-wrap.running .session-action.pin,
-.session-wrap.running .session-action.archive { opacity: 0; pointer-events: none; }
+/* 正在跑的会话不给操作按钮（包括「…」），时间戳也就保持可见 */
+.session-wrap.running .session-action { opacity: 0; pointer-events: none; }
 .session-wrap.running .session-item .m { opacity: 1; }
 .session-action.pin svg { transform: rotate(45deg); }
 .session-action.pin.on { color: var(--text-2); }
@@ -471,29 +478,31 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   /* 触屏没有悬停：操作按钮常显、时间戳让位；正在跑的会话反过来。 */
   .session-action { opacity: 1; }
   .session-item .m { opacity: 0; }
-  .session-wrap.running .session-action.pin,
-  .session-wrap.running .session-action.archive { opacity: 0; pointer-events: none; }
+  .session-wrap.running .session-action { opacity: 0; pointer-events: none; }
   .session-wrap.running .session-item .m { opacity: 1; }
 }
 
-.session-group-label.archived-toggle {
+.session-group-label.group-toggle {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
   text-align: left;
   border-radius: 7px;
+  /* 它是个可点的按钮：上下内边距要对称，否则悬停色块里的文字会偏下 */
+  padding: 8px 10px;
+  margin-top: 6px;
 }
-.session-group-label.archived-toggle:hover { background: var(--bg-hover); }
-.archived-toggle .count { color: var(--text-4); font-size: 10.5px; }
-.archived-toggle .chev {
+.session-group-label.group-toggle:hover { background: var(--bg-hover); }
+.group-toggle .count { color: var(--text-4); font-size: 10.5px; }
+.group-toggle .chev {
   margin-left: auto;
   display: grid;
   place-items: center;
   transition: transform .2s var(--ease);
 }
-.archived-toggle .chev svg { width: 12px; height: 12px; }
-.archived-toggle.open .chev { transform: rotate(90deg); }
+.group-toggle .chev svg { width: 12px; height: 12px; }
+.group-toggle.open .chev { transform: rotate(90deg); }
 
 .session-empty {
   padding: 28px 12px;
@@ -554,6 +563,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   flex: none;
 }
 .icon-btn:hover { background: var(--bg-hover); color: var(--text-1); }
+.icon-btn.on { color: var(--accent); }
+.icon-btn.on:hover { color: var(--accent); }
 .icon-btn svg { width: 17px; height: 17px; }
 
 .theme-mode-dark, .theme-mode-light, .theme-mode-system { display: none; }

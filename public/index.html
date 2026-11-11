@@ -56,6 +56,7 @@
     <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></symbol>
     <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></symbol>
     <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0v4.5l1.8 2.7a.8.8 0 0 1-.7 1.3H4.9a.8.8 0 0 1-.7-1.3L6 13.5V9z"/><path d="M9.5 18.5a2.5 2.5 0 0 0 5 0"/></symbol>
+    <symbol id="i-install" viewBox="0 0 24 24"><path d="M12 3v11M8 10l4 4 4-4"/><path d="M5 18v1a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1"/></symbol>
     <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></symbol>
     <symbol id="i-archive" viewBox="0 0 24 24"><path d="M4 8h16v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8z"/><path d="M3 3h18v5H3z"/><path d="M10 13h4"/></symbol>
     <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 10.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.3V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.7a2 2 0 0 0-1.1-1.8l-1.8-.9a2 2 0 0 1-1.1-1.8V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></symbol>
@@ -115,13 +116,16 @@
         <span class="title-text" id="sessionTitle">新对话</span>
       </div>
       <div class="topbar-right">
+        <button class="icon-btn" id="notifyBtn" title="完成时通知：关" aria-label="完成时通知：关">
+          <svg><use href="#i-bell"/></svg>
+        </button>
+        <button class="icon-btn" id="installBtn" title="安装到桌面" aria-label="安装到桌面" hidden>
+          <svg><use href="#i-install"/></svg>
+        </button>
         <button class="icon-btn" id="themeBtn" title="外观：深色" aria-label="外观：深色">
           <svg class="theme-mode-dark"><use href="#i-moon"/></svg>
           <svg class="theme-mode-light"><use href="#i-sun"/></svg>
           <svg class="theme-mode-system"><use href="#i-monitor"/></svg>
-        </button>
-        <button class="icon-btn" id="moreBtn" title="更多">
-          <svg><use href="#i-dots"/></svg>
         </button>
       </div>
     </header>

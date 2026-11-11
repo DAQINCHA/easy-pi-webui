@@ -20,7 +20,8 @@ const el = {
   menuBtn: $("menuBtn"),
   title: $("sessionTitle"),
   brandVersion: $("brandVersion"),
-  moreBtn: $("moreBtn"),
+  notifyBtn: $("notifyBtn"),
+  installBtn: $("installBtn"),
   thread: $("thread"),
   messages: $("messages"),
   empty: $("emptyState"),
@@ -85,6 +86,7 @@ const state = {
   attachments: [],
   filter: "",
   archivedOpen: false,
+  pinnedOpen: true,
   menuAnchor: null,
   es: null,
   statusEs: null,
@@ -153,18 +155,6 @@ function relativeTime(iso) {
   if (diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
   if (diff < 7 * 86400000) return Math.floor(diff / 86400000) + " 天前";
   return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(date);
-}
-
-function dayBucket(iso) {
-  const date = new Date(iso);
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const diff = Math.round((start - day) / 86400000);
-  if (diff <= 0) return "今天";
-  if (diff === 1) return "昨天";
-  if (diff < 7) return "7 天内";
-  return "更早";
 }
 
 function fmtTokens(value) {
@@ -261,9 +251,7 @@ function sessionItemHtml(session) {
     '<span class="m">' + escapeHtml(relativeTime(session.updatedAt)) + "</span>" +
     "</button>" +
     (session.archived
-      ? '<button class="session-action" type="button" data-menu-file="' + escapeHtml(session.file) + '" title="会话操作" aria-label="会话操作">' +
-        ICON("dots") +
-        "</button>"
+      ? ""
       : '<button class="session-action pin' + (pinned ? " on" : "") + '" type="button" data-pin-file="' + escapeHtml(session.file) +
         '" title="' + (pinned ? "取消置顶" : "置顶会话") + '" aria-label="' + (pinned ? "取消置顶" : "置顶会话") + '">' +
         ICON("pin") +
@@ -271,9 +259,15 @@ function sessionItemHtml(session) {
         '<button class="session-action archive" type="button" data-archive-file="' + escapeHtml(session.file) + '" title="归档会话" aria-label="归档会话">' +
         ICON("archive") +
         "</button>") +
+    '<button class="session-action more" type="button" data-menu-file="' + escapeHtml(session.file) + '" title="会话操作" aria-label="会话操作">' +
+    ICON("dots") +
+    "</button>" +
     "</div>"
   );
 }
+
+// 上一次渲染的列表 HTML：内容没变就不重建 DOM。
+let lastSessionsHtml = "";
 
 function renderSessions() {
   const query = state.filter.trim().toLowerCase();
@@ -283,10 +277,13 @@ function renderSessions() {
   });
 
   if (!list.length) {
-    el.sessionList.innerHTML =
+    const emptyHtml =
       '<div class="session-empty">' +
       (query ? "没有匹配的会话" : "还没有会话<br>发一条消息就会出现在这里") +
       "</div>";
+    if (emptyHtml === lastSessionsHtml) return;
+    lastSessionsHtml = emptyHtml;
+    el.sessionList.innerHTML = emptyHtml;
     return;
   }
 
@@ -296,27 +293,27 @@ function renderSessions() {
 
   let html = "";
   if (pinned.length) {
-    html += '<div class="session-group-label">已置顶</div>';
-    for (const session of pinned) html += sessionItemHtml(session);
+    const open = state.pinnedOpen || Boolean(query);
+    html +=
+      '<button class="session-group-label group-toggle' + (open ? " open" : "") + '" type="button" data-toggle-pinned>' +
+      "<span>已置顶</span>" +
+      '<span class="count">' + pinned.length + "</span>" +
+      '<span class="chev">' + ICON("right") + "</span>" +
+      "</button>";
+    if (open) {
+      for (const session of pinned) html += sessionItemHtml(session);
+    }
   }
   if (active.length) {
-    const groups = new Map();
-    for (const session of active) {
-      const label = dayBucket(session.updatedAt);
-      if (!groups.has(label)) groups.set(label, []);
-      groups.get(label).push(session);
-    }
-    for (const [label, sessions] of groups) {
-      html += '<div class="session-group-label">' + label + "</div>";
-      for (const session of sessions) html += sessionItemHtml(session);
-    }
+    for (const session of active) html += sessionItemHtml(session);
   }
 
   if (archived.length) {
     const open = state.archivedOpen || Boolean(query);
     html +=
-      '<button class="session-group-label archived-toggle' + (open ? " open" : "") + '" type="button" data-toggle-archive>' +
-      "<span>已归档</span><span class=\"count\">" + archived.length + "</span>" +
+      '<button class="session-group-label group-toggle' + (open ? " open" : "") + '" type="button" data-toggle-archive>' +
+      "<span>已归档</span>" +
+      '<span class="count">' + archived.length + "</span>" +
       '<span class="chev">' + ICON("right") + "</span>" +
       "</button>";
     if (open) {
@@ -324,7 +321,20 @@ function renderSessions() {
     }
   }
 
+  // 内容没变就别重建 DOM：重建会打断悬停状态，还会让图标/时间戳的切换重播一次。
+  if (html === lastSessionsHtml) return;
+  lastSessionsHtml = html;
+  suppressListFade();
   el.sessionList.innerHTML = html;
+}
+
+// 刚重建完的几百毫秒内不播过渡：新节点要等下一帧才匹配 :hover，
+// 那一下会从透明淡入，看起来就是图标在闪。
+let suppressFadeTimer = 0;
+function suppressListFade() {
+  el.sessionList.classList.add("no-fade");
+  clearTimeout(suppressFadeTimer);
+  suppressFadeTimer = setTimeout(() => el.sessionList.classList.remove("no-fade"), 240);
 }
 
 function updateWorkspace() {
@@ -1883,13 +1893,6 @@ async function maybeNotifyDone() {
 
 /* ---------- PWA：Service Worker + 安装到桌面 ---------- */
 
-function isStandalone() {
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    window.navigator.standalone === true
-  );
-}
-
 function registerServiceWorker() {
   // 安全上下文才注册：https / 127.0.0.1 / localhost。
   // 局域网普通 http 注册必然失败，file:// 也不注册。
@@ -1905,12 +1908,14 @@ function registerServiceWorker() {
 
 function setupInstallPrompt() {
   window.addEventListener("beforeinstallprompt", (event) => {
-    // 先接管，避免浏览器自己弹一条提示；改由「更多」菜单触发。
+    // 先接管，避免浏览器自己弹一条提示；改由顶部的安装按钮触发。
     event.preventDefault();
     state.installPrompt = event;
+    if (el.installBtn) el.installBtn.hidden = false;
   });
   window.addEventListener("appinstalled", () => {
     state.installPrompt = null;
+    if (el.installBtn) el.installBtn.hidden = true;
     toast("已安装到桌面");
   });
 }
@@ -1919,6 +1924,7 @@ async function promptInstall() {
   const prompt = state.installPrompt;
   if (!prompt) return;
   state.installPrompt = null;
+  if (el.installBtn) el.installBtn.hidden = true;
   try {
     prompt.prompt();
     const choice = await prompt.userChoice;
@@ -2670,30 +2676,35 @@ async function selectThink(level) {
   }
 }
 
-function currentSessionMeta() {
-  if (!state.file) return null;
-  return state.sessions.find((session) => session.file === state.file) || null;
+async function copySessionId(key) {
+  try {
+    await navigator.clipboard.writeText(String(key || "").replace(/^s:/, ""));
+    toast("会话 ID 已复制");
+  } catch {
+    toast("复制失败", "error");
+  }
 }
 
 function openSessionMenu(anchor, file) {
   const session = state.sessions.find((item) => item.file === file);
   if (!session) return;
+  const key = "s:" + session.id;
   openMenu(
     anchor,
     [
-      {
-        label: "取消归档",
-        icon: "archive",
-        onClick: () => setArchived(file, false),
-      },
-      {
-        label: "删除会话",
-        icon: "trash",
-        danger: true,
-        onClick: () => deleteSession(file),
-      },
+      { label: "重命名", icon: "edit", onClick: () => renameSession(session) },
+      { label: "复制会话 ID", icon: "copy", onClick: () => copySessionId(key) },
+      { sep: true },
+      session.pinned
+        ? { label: "取消置顶", icon: "pin", onClick: () => setPinned(file, false) }
+        : { label: "置顶会话", icon: "pin", onClick: () => setPinned(file, true) },
+      session.archived
+        ? { label: "取消归档", icon: "archive", onClick: () => setArchived(file, false) }
+        : { label: "归档会话", icon: "archive", onClick: () => setArchived(file, true) },
+      { label: "删除会话", icon: "trash", danger: true, onClick: () => deleteSession(file) },
     ],
-    { align: "right" },
+    // 侧栏靠左，菜单往右展开才不会被窗口边缘顶回去。
+    { align: "left" },
   );
 }
 
@@ -2745,41 +2756,12 @@ async function setPinned(file, pinned) {
   }
 }
 
-function openMoreMenu(anchor) {
-  const current = currentSessionMeta();
-  const items = [];
-  items.push(
-    { label: "完成时通知", icon: "bell", active: readNotifyPref(), onClick: () => toggleNotify() },
-    { sep: true },
-    { label: "重命名会话", icon: "edit", onClick: () => renameSession() },
-    {
-      label: "复制会话 ID",
-      icon: "copy",
-      onClick: async () => {
-        try {
-          await navigator.clipboard.writeText((state.key || "").replace(/^s:/, ""));
-          toast("会话 ID 已复制");
-        } catch {
-          toast("复制失败", "error");
-        }
-      },
-    },
-  );
-  // 只有浏览器给了安装事件、且当前不是已安装的独立窗口时才显示。
-  if (state.installPrompt && !isStandalone()) {
-    items.push({ label: "安装到桌面", icon: "down", onClick: () => promptInstall() });
-  }
-  if (current) {
-    items.push(
-      { sep: true },
-      {
-        label: current.archived ? "取消归档" : "归档会话",
-        icon: "archive",
-        onClick: () => setArchived(current.file, !current.archived),
-      },
-    );
-  }
-  openMenu(anchor, items, { align: "right" });
+function updateNotifyBtn() {
+  const on = readNotifyPref();
+  const label = on ? "完成时通知：开" : "完成时通知：关";
+  el.notifyBtn.classList.toggle("on", on);
+  el.notifyBtn.title = label;
+  el.notifyBtn.setAttribute("aria-label", label);
 }
 
 /* ------------------------------------------------------------------ */
@@ -2824,10 +2806,13 @@ function openModal(options) {
   return { card, close };
 }
 
-function renameSession() {
+function renameSession(session) {
+  const current = !session || "s:" + session.id === state.key;
+  const key = current ? state.key : "s:" + session.id;
+  const initial = current ? state.sessionName || sessionTitle() : session.name || session.title || "";
   openModal({
-    title: "重命名会话",
-    body: '<input class="field" id="renameInput" value="' + escapeHtml(state.sessionName || sessionTitle()) + '">',
+    title: "重命名",
+    body: '<input class="field" id="renameInput" value="' + escapeHtml(initial) + '">',
     actions: [
       { label: "取消" },
       {
@@ -2835,7 +2820,7 @@ function renameSession() {
         kind: "primary",
         onClick: (card) => {
           const value = card.querySelector("#renameInput").value.trim();
-          saveName(value);
+          saveName(value, key, current);
         },
       },
     ],
@@ -2851,26 +2836,33 @@ function renameSession() {
         const value = input.value.trim();
         el.modalLayer.hidden = true;
         el.modalLayer.innerHTML = "";
-        saveName(value);
+        saveName(value, key, current);
       }
     });
   }
 }
 
-async function saveName(name) {
-  if (!state.key) return;
+async function saveName(name, key, current) {
+  if (!key) return;
   if (!name) {
     toast("名字不能为空", "error");
     return;
   }
   try {
-    await api("/api/rename", { key: state.key, name });
-    state.sessionName = name;
-    updateHeader();
+    await api("/api/rename", { key, name });
+    if (current) {
+      state.sessionName = name;
+      updateHeader();
+    }
     refreshSessions();
     toast("已重命名");
   } catch (error) {
-    toast("重命名失败：" + error.message, "error");
+    const message = String((error && error.message) || "");
+    // 重命名是发给那个会话的 pi 进程的：进程不在了（闲置回收）就改不了。
+    toast(
+      message.includes("unknown session") ? "这个会话已不在运行，打开它之后才能改名" : "重命名失败：" + message,
+      "error",
+    );
   }
 }
 
@@ -3166,6 +3158,13 @@ function bindEvents() {
       return;
     }
 
+    const pinnedToggle = event.target.closest("[data-toggle-pinned]");
+    if (pinnedToggle) {
+      state.pinnedOpen = !state.pinnedOpen;
+      renderSessions();
+      return;
+    }
+
     const pinButton = event.target.closest("[data-pin-file]");
     if (pinButton) {
       event.stopPropagation();
@@ -3211,7 +3210,10 @@ function bindEvents() {
   });
 
   el.themeBtn.addEventListener("click", () => openThemeMenu(el.themeBtn));
-  el.moreBtn.addEventListener("click", () => openMoreMenu(el.moreBtn));
+  el.notifyBtn.addEventListener("click", () => {
+    toggleNotify().finally(updateNotifyBtn);
+  });
+  el.installBtn.addEventListener("click", () => promptInstall());
   el.workspaceChip.addEventListener("click", () => (state.needsWorkspace ? openWorkspacePicker() : openWorkspaceMenu()));
   el.emptyPickBtn.addEventListener("click", openWorkspacePicker);
   el.modelChip.addEventListener("click", () => openModelMenu(el.modelChip));
@@ -3484,6 +3486,7 @@ async function boot() {
   syncNavToggle();
   autosize();
   updateSendState();
+  updateNotifyBtn();
 
   try {
     const bootstrap = await api("/api/bootstrap");
