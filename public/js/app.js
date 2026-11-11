@@ -324,6 +324,15 @@ function rememberWorkspace(path) {
   }
 }
 
+function forgetWorkspace(path) {
+  const list = readRecentWorkspaces().filter((item) => item !== path);
+  try {
+    localStorage.setItem(WORKSPACE_RECENT_KEY, JSON.stringify(list));
+  } catch {
+    /* ignore */
+  }
+}
+
 function openWorkspaceMenu() {
   const current = state.workspace || "";
   const recent = readRecentWorkspaces().filter((item) => item !== current);
@@ -332,10 +341,15 @@ function openWorkspaceMenu() {
       recent
         .map(
           (item) =>
+            '<div class="recent-row">' +
             '<button class="recent-item" type="button" data-recent="' + escapeHtml(item) + '">' +
             '<span class="recent-name">' + escapeHtml(basename(item) || item) + "</span>" +
             '<span class="recent-path">' + escapeHtml(item) + "</span>" +
-            "</button>",
+            "</button>" +
+            '<button class="recent-remove" type="button" data-remove-recent="' + escapeHtml(item) + '" title="从最近使用中移除" aria-label="从最近使用中移除">' +
+            ICON("x") +
+            "</button>" +
+            "</div>",
         )
         .join("") +
       "</div>"
@@ -357,6 +371,14 @@ function openWorkspaceMenu() {
   if (pick) pick.addEventListener("click", () => pickWorkspace(pick));
   for (const row of el.menuLayer.querySelectorAll("[data-recent]")) {
     row.addEventListener("click", () => switchToWorkspace(row.getAttribute("data-recent")));
+  }
+  for (const button of el.menuLayer.querySelectorAll("[data-remove-recent]")) {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      forgetWorkspace(button.getAttribute("data-remove-recent"));
+      openWorkspaceMenu();
+    });
   }
 }
 

@@ -1158,15 +1158,37 @@ html[data-theme="light"] .tok-num { color: #b45309; }
 textarea.field { height: auto; min-height: 110px; padding: 9px 11px; resize: vertical; line-height: 1.6; }
 
 .recent-list { display: flex; flex-direction: column; gap: 2px; }
+.recent-row { position: relative; }
 .recent-item {
   display: flex;
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  padding: 8px 9px;
+  padding: 8px 30px 8px 9px;
   border-radius: 8px;
   text-align: left;
   color: var(--text-2);
+}
+.recent-remove {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--text-4);
+  opacity: 0;
+  transition: opacity .15s var(--ease), background .15s var(--ease), color .15s var(--ease);
+}
+.recent-row:hover .recent-remove,
+.recent-remove:focus-visible { opacity: 1; }
+.recent-remove:hover { background: var(--bg-hover); color: var(--red); }
+.recent-remove svg { width: 12px; height: 12px; }
+@media (hover: none) {
+  .recent-remove { opacity: 1; }
 }
 .recent-name {
   font-family: var(--font-ui);
