@@ -225,7 +225,8 @@ function sessionItemHtml(session) {
   const active = state.key === "s:" + session.id;
   const runtime = state.runtime.get(session.id);
   const running = Boolean(runtime && runtime.running) || (active && state.streaming);
-  const unread = !running && Boolean(runtime && runtime.unread);
+  const errored = !running && Boolean(runtime && runtime.errored);
+  const unread = !running && !errored && Boolean(runtime && runtime.unread);
   const label = session.name || session.title;
   return (
     '<div class="session-wrap' + (session.archived ? " archived" : "") + '">' +
@@ -233,9 +234,11 @@ function sessionItemHtml(session) {
     '<span class="row"><span class="t">' + escapeHtml(label) + "</span>" +
     (running
       ? '<span class="session-spin" title="正在工作"></span>'
-      : unread
-        ? '<span class="unread-dot" title="已完成，未读"></span>'
-        : "") +
+      : errored
+        ? '<span class="error-dot" title="模型错误，会话已终止"></span>'
+        : unread
+          ? '<span class="unread-dot" title="已完成，未读"></span>'
+          : "") +
     "</span>" +
     '<span class="m">' + escapeHtml(relativeTime(session.updatedAt)) + "</span>" +
     "</button>" +
@@ -1153,6 +1156,7 @@ async function markSeen(force = false) {
   const runtime = state.runtime.get(id);
   if (runtime) {
     runtime.unread = false;
+    runtime.errored = false;
     renderSessions();
   }
 }

@@ -302,7 +302,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   flex: none;
   animation: spin 2.4s linear infinite;
 }
-.unread-dot {
+.unread-dot,
+.error-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -310,6 +311,10 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent);
   flex: none;
   animation: pulse 1.6s var(--ease) infinite;
+}
+.error-dot {
+  background: var(--red);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 18%, transparent);
 }
 
 .session-wrap { position: relative; }

@@ -158,6 +158,7 @@ function statusSnapshot() {
     statuses[id] = {
       running: item.running,
       unread: !item.running && item.finishedAt > item.seenAt,
+      errored: Boolean(item.errored),
     };
   }
   return statuses;
@@ -175,12 +176,13 @@ function broadcastStatus() {
   }
 }
 
-function setRunning(bridge, running, finished = true) {
+function setRunning(bridge, running, finished = true, errored) {
   const id = statusId(bridge);
   if (!id) return;
   const item = sessionRuntime.get(id) || { running: false, finishedAt: 0, seenAt: 0 };
   item.running = Boolean(running);
   if (!running && finished) item.finishedAt = Date.now();
+  if (errored !== undefined) item.errored = Boolean(errored);
   sessionRuntime.set(id, item);
   broadcastStatus();
 }
@@ -189,15 +191,30 @@ function wire(bridge) {
   bridge.clients = new Set();
   bridge.pendingUi = new Map();
   bridge.streaming = false;
+  bridge.hadError = false;
 
   bridge.on("record", ({ seq, record }) => {
     if (record.type === "agent_start") {
       bridge.streaming = true;
-      setRunning(bridge, true);
+      bridge.hadError = false;
+      setRunning(bridge, true, true, false);
+    }
+    // 模型请求失败：重试最终失败，或助手消息以 error 结束。
+    // agent_start 会重置这个标记，所以自动重试成功后不会误报。
+    if (record.type === "auto_retry_end") {
+      bridge.hadError = record.success === false;
+    }
+    if (
+      record.type === "message_end" &&
+      record.message?.role === "assistant" &&
+      (record.message.stopReason === "error" || record.message.errorMessage)
+    ) {
+      bridge.hadError = true;
     }
     if (record.type === "agent_settled") {
       bridge.streaming = false;
-      setRunning(bridge, false);
+      // 用户主动停止（aborted）不算出错。
+      setRunning(bridge, false, true, Boolean(bridge.hadError && !record.aborted));
     }
 
     if (record.type === "extension_ui_request") {
@@ -216,7 +233,8 @@ function wire(bridge) {
 
   bridge.on("exit", ({ code, signal, intentional }) => {
     bridge.streaming = false;
-    setRunning(bridge, false, false);
+    // 非预期退出（进程崩溃等）也算会话异常终止；主动回收 / 删除会话不算。
+    setRunning(bridge, false, false, intentional ? undefined : true);
     broadcast(
       bridge,
       { type: "bridge_exit", code: code ?? null, signal: signal ?? null, intentional: Boolean(intentional) },
@@ -536,6 +554,7 @@ async function handleApi(req, res, url) {
     const item = sessionRuntime.get(id);
     if (item) {
       item.seenAt = Date.now();
+      item.errored = false;
       broadcastStatus();
     }
     return json(res, 200, { ok: true });
