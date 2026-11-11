@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark" data-mode="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+  <title>pi webui</title>
+  <link rel="icon" type="image/svg+xml" href="./logo.svg" />
+  <meta name="theme-color" content="#000000" />
+  <script>
+    try {
+      var saved = localStorage.getItem("piwebui.theme") || "system";
+      var mode = saved === "light" || saved === "system" ? saved : "dark";
+      var resolved = mode === "system"
+        ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+        : mode;
+      document.documentElement.dataset.theme = resolved;
+      document.documentElement.dataset.mode = mode;
+    } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></symbol>
+    <symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l9 16H3L12 3z"/><path d="M12 9v5M12 17v.5"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><path d="M4 17l6-5-6-5M12 19h8"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/><path d="M14 3v5h5"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4l10-10a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 15l-4.5-4.5L7 20"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2z"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24"><path d="M4 8h16v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8z"/><path d="M3 3h18v5H3z"/><path d="M10 13h4"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M9 7V4h6v3"/></symbol>
+  </defs>
+</svg>
+
+<div class="app" id="app">
+  <div class="scrim" id="scrim"></div>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <a class="brand" href="#" id="brandHome" aria-label="pi webui">
+        <span class="brand-mark">π</span>
+        <span class="brand-name">pi</span>
+        <span class="brand-sub">webui</span>
+      </a>
+    </div>
+
+    <button class="new-chat" id="newChatBtn">
+      <svg><use href="#i-plus"/></svg>
+      <span>新对话</span>
+      <kbd>⌘K</kbd>
+    </button>
+
+    <div class="search">
+      <svg><use href="#i-search"/></svg>
+      <input id="sessionSearch" type="text" placeholder="搜索会话" autocomplete="off" spellcheck="false" />
+    </div>
+
+    <div class="session-scroll" id="sessionList"></div>
+
+    <div class="sidebar-foot">
+      <div class="workspace" id="workspaceChip" title="">
+        <svg><use href="#i-folder"/></svg>
+        <span id="workspaceName">工作目录</span>
+      </div>
+    </div>
+  </aside>
+
+  <div class="sidebar-resizer" id="sidebarResizer" title="拖动调整侧栏宽度"></div>
+
+  <main class="main">
+    <div class="message-rail" id="messageRail" hidden>
+      <div class="rail-ticks" id="railTicks"></div>
+      <div class="rail-tip" id="railTip" hidden></div>
+    </div>
+
+    <header class="topbar">
+      <button class="icon-btn nav-toggle" id="menuBtn" title="收起侧栏" aria-label="收起侧栏">
+        <svg><use href="#i-sidebar"/></svg>
+      </button>
+      <div class="topbar-title">
+        <span class="title-text" id="sessionTitle">新对话</span>
+        <span class="title-sub" id="sessionSub"></span>
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn" id="themeBtn" title="外观：深色" aria-label="外观：深色">
+          <svg class="theme-mode-dark"><use href="#i-moon"/></svg>
+          <svg class="theme-mode-light"><use href="#i-sun"/></svg>
+          <svg class="theme-mode-system"><use href="#i-monitor"/></svg>
+        </button>
+        <button class="icon-btn" id="moreBtn" title="更多">
+          <svg><use href="#i-dots"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="thread" id="thread">
+      <div class="thread-inner">
+        <div class="empty" id="emptyState">
+          <div class="empty-mark">π</div>
+          <h1>今天想做点什么？</h1>
+          <p class="empty-sub" id="emptySub">pi 会在这个目录里读写文件、运行命令。</p>
+          <div class="suggestions" id="suggestions">
+            <button data-suggest="帮我快速看一下这个项目是做什么的">了解一下这个项目</button>
+            <button data-suggest="看看最近有哪些改动，有没有遗留问题">检查最近的改动</button>
+            <button data-suggest="帮我写一个脚本，">写一个小脚本</button>
+            <button data-suggest="解释一下这段代码：">解释一段代码</button>
+          </div>
+        </div>
+        <div class="messages" id="messages"></div>
+        <div class="thread-bottom" id="threadBottom"></div>
+      </div>
+    </div>
+
+    <button class="to-bottom" id="toBottom" hidden>
+      <svg><use href="#i-down"/></svg>
+    </button>
+
+    <div class="composer-shell">
+      <div class="composer" id="composer">
+        <div class="attach-row" id="attachRow" hidden></div>
+        <textarea id="input" rows="1" placeholder="给 pi 发消息，输入 / 查看命令" autocomplete="off"></textarea>
+        <div class="composer-bar">
+          <div class="composer-left">
+            <button class="chip" id="modelChip">
+              <svg><use href="#i-spark"/></svg>
+              <span id="modelChipText">模型</span>
+            </button>
+            <button class="chip" id="thinkChip">
+              <svg><use href="#i-bolt"/></svg>
+              <span id="thinkChipText">思考</span>
+            </button>
+            <button class="chip ctx" id="ctxChip" hidden>
+              <span class="ctx-ring" id="ctxRing" aria-hidden="true">
+                <svg viewBox="0 0 16 16">
+                  <circle class="ring-track" cx="8" cy="8" r="6"></circle>
+                  <circle class="ring-arc" id="ctxArc" cx="8" cy="8" r="6"></circle>
+                </svg>
+              </span>
+              <span id="ctxText">0%</span>
+            </button>
+          </div>
+          <div class="composer-right">
+            <span class="queue-pill" id="queuePill" hidden>已排队 <b id="queueCount">0</b></span>
+            <button class="icon-btn" id="attachBtn" title="添加图片">
+              <svg><use href="#i-image"/></svg>
+            </button>
+            <button class="send" id="sendBtn" title="发送">
+              <svg class="send-icon"><use href="#i-send"/></svg>
+              <svg class="stop-icon" hidden><use href="#i-stop"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="composer-hint">
+        <span id="hintText">Enter 发送 · Shift + Enter 换行</span>
+        <span class="hint-right" id="statusHint"></span>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="menu-layer" id="menuLayer" hidden></div>
+<div class="modal-layer" id="modalLayer" hidden></div>
+<div class="toasts" id="toasts"></div>
+<input type="file" id="fileInput" accept="image/*" multiple hidden />
+
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
