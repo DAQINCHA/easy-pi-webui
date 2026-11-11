@@ -1219,6 +1219,8 @@ function turnNodes(turn, ctx) {
   if (turn.user) {
     const node = userNode(turn.user.message, turn.user.index, ctx.user);
     node.setAttribute("data-turn", String(turn.index));
+    // 重绘出来的节点不播入场动画，否则每帧淡入一次就是闪。
+    if (ctx.refresh) node.classList.add("refresh");
     nodes.push(node);
   }
 
@@ -1295,11 +1297,30 @@ function refreshCurrentTurn(options) {
   if (!turn) return;
   const focus = captureFocus();
   const nodes = turnNodes(turn, turnContext(turn, Object.assign({}, options, { refresh: true })));
-  const first = state.lastTurnNodes && state.lastTurnNodes[0];
-  const sameTurn = Boolean(first) && first.getAttribute("data-turn") === String(turn.index);
-  if (sameTurn && first.parentNode) {
-    for (const node of nodes) first.parentNode.insertBefore(node, first);
-    for (const old of state.lastTurnNodes) old.remove();
+
+  const old = state.lastTurnNodes || [];
+  const oldFirst = old[0];
+  const sameTurn = Boolean(oldFirst) && oldFirst.getAttribute("data-turn") === String(turn.index);
+
+  // 用户气泡是静止内容，重绘时直接复用：重建它会让图片重新解码，也会把入场动画再播一遍。
+  let keepUser = null;
+  if (sameTurn && turn.user && oldFirst.classList.contains("user")) {
+    keepUser = oldFirst;
+    nodes[0] = keepUser;
+  }
+
+  if (sameTurn && oldFirst.parentNode) {
+    const lastOld = old[old.length - 1];
+    const after = lastOld ? lastOld.nextSibling : null;
+    for (const node of old) {
+      if (node !== keepUser) node.remove();
+    }
+    const ref = after && after.parentNode ? after : null;
+    for (const node of nodes) {
+      if (node === keepUser) continue;
+      if (ref) ref.parentNode.insertBefore(node, ref);
+      else el.messages.appendChild(node);
+    }
   } else {
     for (const node of nodes) el.messages.appendChild(node);
   }
