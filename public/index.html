@@ -79,8 +79,11 @@
 
     <div class="sidebar-foot">
       <button class="workspace" id="workspaceChip" type="button" title="切换工作区">
-        <svg><use href="#i-folder"/></svg>
-        <span id="workspaceName">工作目录</span>
+        <span class="ws-icon"><svg><use href="#i-folder"/></svg></span>
+        <span class="ws-text">
+          <span class="ws-name" id="workspaceName">工作目录</span>
+          <span class="ws-path" id="workspacePath"></span>
+        </span>
         <svg class="ws-caret"><use href="#i-down"/></svg>
       </button>
     </div>

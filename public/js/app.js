@@ -16,6 +16,7 @@ const el = {
   brand: $("brandHome"),
   workspaceChip: $("workspaceChip"),
   workspaceName: $("workspaceName"),
+  workspacePath: $("workspacePath"),
   themeBtn: $("themeBtn"),
   menuBtn: $("menuBtn"),
   title: $("sessionTitle"),
@@ -295,8 +296,11 @@ function renderSessions() {
 function updateWorkspace() {
   if (!state.workspace) return;
   el.workspaceName.textContent = basename(state.workspace) || state.workspace;
+  el.workspacePath.textContent = state.workspace;
   el.workspaceChip.title = "切换工作区 · " + state.workspace;
 }
+
+const PICKER_LABEL = '<svg><use href="#i-folder"/></svg><span>在 Finder 中选择…</span>';
 
 const WORKSPACE_RECENT_KEY = "piwebui.workspaces";
 
@@ -327,7 +331,8 @@ function openWorkspaceModal() {
         .map(
           (item) =>
             '<button class="recent-item" type="button" data-recent="' + escapeHtml(item) + '">' +
-            escapeHtml(item) +
+            '<span class="recent-name">' + escapeHtml(basename(item) || item) + "</span>" +
+            '<span class="recent-path">' + escapeHtml(item) + "</span>" +
             "</button>",
         )
         .join("") +
@@ -337,6 +342,7 @@ function openWorkspaceModal() {
     ? "切换后 pi 会在新目录里执行命令、读写文件；当前会话还在运行，会在后台继续。"
     : "切换后 pi 会在新目录里执行命令、读写文件；旧目录的会话不会丢。";
   const body =
+    '<button class="picker-btn" type="button" id="workspacePick">' + PICKER_LABEL + "</button>" +
     '<p class="modal-hint">' + hint + "</p>" +
     '<label class="field-label" for="workspacePath">目录路径</label>' +
     '<input class="field" id="workspacePath" spellcheck="false" autocomplete="off" value="' + escapeHtml(current) + '">' +
@@ -360,6 +366,7 @@ function openWorkspaceModal() {
   });
 
   const input = dialog.card.querySelector("#workspacePath");
+  dialog.card.querySelector("#workspacePick").addEventListener("click", () => pickWorkspace(dialog));
   for (const button of dialog.card.querySelectorAll("[data-recent]")) {
     button.addEventListener("click", () => {
       input.value = button.getAttribute("data-recent");
@@ -374,6 +381,31 @@ function openWorkspaceModal() {
   });
   input.focus();
   input.select();
+}
+
+async function pickWorkspace(dialog) {
+  const card = dialog.card;
+  const button = card.querySelector("#workspacePick");
+  const input = card.querySelector("#workspacePath");
+  const error = card.querySelector("#workspaceError");
+  button.disabled = true;
+  button.textContent = "等待 Finder 选择…";
+  try {
+    const data = await api("/api/workspace/pick", {});
+    if (data.cancelled || !data.path) {
+      toast("已取消选择");
+      button.disabled = false;
+      button.innerHTML = PICKER_LABEL;
+      return;
+    }
+    input.value = data.path;
+    submitWorkspace(dialog);
+  } catch (err) {
+    error.hidden = false;
+    error.textContent = err.message;
+    button.disabled = false;
+    button.innerHTML = PICKER_LABEL;
+  }
 }
 
 async function submitWorkspace(dialog) {
@@ -393,6 +425,11 @@ async function submitWorkspace(dialog) {
   button.textContent = "切换中…";
   try {
     const data = await api("/api/workspace", { path });
+    if (data.workspace === state.workspace) {
+      dialog.close();
+      toast("当前已经是这个目录");
+      return;
+    }
     rememberWorkspace(data.workspace);
     dialog.close();
     await resetToWorkspace(data);
@@ -402,6 +439,11 @@ async function submitWorkspace(dialog) {
     error.textContent = err.message;
     button.disabled = false;
     button.textContent = label;
+    const picker = card.querySelector("#workspacePick");
+    if (picker) {
+      picker.disabled = false;
+      picker.innerHTML = PICKER_LABEL;
+    }
   }
 }
 

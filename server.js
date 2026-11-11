@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { accessSync, constants as fsConstants, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PiBridge, buildEnv } from "./lib/pi-bridge.js";
@@ -486,6 +486,36 @@ async function handleApi(req, res, url) {
       sessions: getSessions(),
       piVersion: piVersionString(),
     });
+  }
+
+  if (path === "/api/workspace/pick") {
+    if (process.platform !== "darwin") {
+      return json(res, 501, { error: "当前系统不支持系统选择框，请手动输入路径" });
+    }
+    try {
+      const picked = await new Promise((resolvePick, rejectPick) => {
+        execFile(
+          "osascript",
+          ["-e", 'POSIX path of (choose folder with prompt "选择 pi 的工作目录")'],
+          { timeout: 180000, maxBuffer: 1024 * 1024 },
+          (error, stdout, stderr) => {
+            if (error) {
+              rejectPick(Object.assign(error, { stderr }));
+              return;
+            }
+            resolvePick(String(stdout || "").trim());
+          },
+        );
+      });
+      const chosen = picked.replace(/\/+$/, "") || "/";
+      if (!chosen) return json(res, 200, { cancelled: true });
+      return json(res, 200, { path: chosen });
+    } catch (error) {
+      const text = String(error.stderr || error.message || "");
+      if (error.killed) return json(res, 500, { error: "选择超时，请重试" });
+      if (text.includes("-128") || /cancel/i.test(text)) return json(res, 200, { cancelled: true });
+      return json(res, 500, { error: "无法打开系统选择框：" + text.trim() });
+    }
   }
 
   if (path === "/api/archive") {
