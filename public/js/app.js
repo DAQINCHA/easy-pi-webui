@@ -24,7 +24,6 @@ const el = {
   thread: $("thread"),
   messages: $("messages"),
   empty: $("emptyState"),
-  emptySub: $("emptySub"),
   suggestions: $("suggestions"),
   toBottom: $("toBottom"),
   input: $("input"),
@@ -442,7 +441,6 @@ async function resetToWorkspace(data) {
   updateWorking();
   updateHeader();
   el.queuePill.hidden = true;
-  el.emptySub.textContent = "pi 会在 " + state.workspace + " 里读写文件、运行命令。";
 
   try {
     await newSession();
@@ -459,9 +457,9 @@ function updateHeader() {
   const title = sessionTitle();
   el.title.textContent = title;
   el.sub.textContent = state.key
-    ? "pi " + state.piVersion + " · " + (state.streaming ? "正在工作" : "就绪")
-    : "pi " + state.piVersion;
-  document.title = title + " · pi webui";
+    ? "Pi " + state.piVersion + " · " + (state.streaming ? "正在工作" : "就绪")
+    : "Pi " + state.piVersion;
+  document.title = title + " · Pi webui";
 }
 
 const THINK_LABEL = {
@@ -1960,7 +1958,7 @@ function handleUiRequest(request) {
     return;
   }
   if (request.method === "setTitle") {
-    document.title = request.title || "pi webui";
+    document.title = request.title || "Pi webui";
     return;
   }
   if (request.method === "set_editor_text") {
@@ -2491,7 +2489,6 @@ async function boot() {
     state.sessions = bootstrap.sessions || [];
     rememberWorkspace(bootstrap.workspace);
     updateWorkspace();
-    el.emptySub.textContent = "pi 会在 " + bootstrap.workspace + " 里读写文件、运行命令。";
     renderSessions();
     updateHeader();
 

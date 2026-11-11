@@ -524,7 +524,6 @@ html[data-mode="system"] .theme-mode-system { display: block; }
   font-weight: 600;
   letter-spacing: -0.02em;
 }
-.empty-sub { margin: 0; font-size: 13.5px; color: var(--text-3); }
 .suggestions {
   display: flex;
   flex-wrap: wrap;
