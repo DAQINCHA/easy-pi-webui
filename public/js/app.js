@@ -16,7 +16,6 @@ const el = {
   brand: $("brandHome"),
   workspaceChip: $("workspaceChip"),
   workspaceName: $("workspaceName"),
-  workspacePath: $("workspacePath"),
   themeBtn: $("themeBtn"),
   menuBtn: $("menuBtn"),
   title: $("sessionTitle"),
@@ -296,12 +295,10 @@ function renderSessions() {
 function updateWorkspace() {
   if (!state.workspace) return;
   el.workspaceName.textContent = basename(state.workspace) || state.workspace;
-  el.workspacePath.textContent = state.workspace;
   el.workspaceChip.title = "切换工作区 · " + state.workspace;
 }
 
-const PICKER_LABEL = '<svg><use href="#i-folder"/></svg><span>在 Finder 中选择…</span>';
-
+const PICKER_LABEL = '<svg><use href="#i-folder"/></svg><span>打开工作区</span>';
 const WORKSPACE_RECENT_KEY = "piwebui.workspaces";
 
 function readRecentWorkspaces() {
@@ -322,11 +319,11 @@ function rememberWorkspace(path) {
   }
 }
 
-function openWorkspaceModal() {
+function openWorkspaceMenu() {
   const current = state.workspace || "";
   const recent = readRecentWorkspaces().filter((item) => item !== current);
   const recentHtml = recent.length
-    ? '<div class="field-label recent-label">最近使用</div><div class="recent-list">' +
+    ? '<div class="ws-menu-label">最近使用</div><div class="ws-menu-list">' +
       recent
         .map(
           (item) =>
@@ -337,113 +334,72 @@ function openWorkspaceModal() {
         )
         .join("") +
       "</div>"
-    : "";
-  const hint = state.streaming
-    ? "切换后 pi 会在新目录里执行命令、读写文件；当前会话还在运行，会在后台继续。"
-    : "切换后 pi 会在新目录里执行命令、读写文件；旧目录的会话不会丢。";
-  const body =
+    : '<div class="ws-menu-empty">还没有其他目录</div>';
+  const html =
+    '<div class="ws-menu-head">' +
+    '<div class="ws-menu-name">' + escapeHtml(basename(current) || current) + "</div>" +
+    '<div class="ws-menu-path">' + escapeHtml(current) + "</div>" +
+    "</div>" +
     '<button class="picker-btn" type="button" id="workspacePick">' + PICKER_LABEL + "</button>" +
-    '<p class="modal-hint">' + hint + "</p>" +
-    '<label class="field-label" for="workspacePath">目录路径</label>' +
-    '<input class="field" id="workspacePath" spellcheck="false" autocomplete="off" value="' + escapeHtml(current) + '">' +
-    '<div class="modal-error" id="workspaceError" hidden></div>' +
+    '<div class="ws-menu-hint">' +
+    (state.streaming ? "当前会话会在后台继续，不会中断。" : "旧目录的会话不会丢。") +
+    "</div>" +
     recentHtml;
 
-  const dialog = openModal({
-    title: "切换工作区",
-    body,
-    actions: [
-      { label: "取消" },
-      {
-        label: state.streaming ? "仍然切换" : "切换",
-        kind: "primary",
-        onClick: () => {
-          submitWorkspace(dialog);
-          return false;
-        },
-      },
-    ],
-  });
+  openMenu(el.workspaceChip, [], { html, align: "left", preferUp: true, className: "workspace-menu" });
 
-  const input = dialog.card.querySelector("#workspacePath");
-  dialog.card.querySelector("#workspacePick").addEventListener("click", () => pickWorkspace(dialog));
-  for (const button of dialog.card.querySelectorAll("[data-recent]")) {
-    button.addEventListener("click", () => {
-      input.value = button.getAttribute("data-recent");
-      input.focus();
-    });
+  const pick = el.menuLayer.querySelector("#workspacePick");
+  if (pick) pick.addEventListener("click", () => pickWorkspace(pick));
+  for (const row of el.menuLayer.querySelectorAll("[data-recent]")) {
+    row.addEventListener("click", () => switchToWorkspace(row.getAttribute("data-recent")));
   }
-  input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      submitWorkspace(dialog);
-    }
-  });
-  input.focus();
-  input.select();
 }
 
-async function pickWorkspace(dialog) {
-  const card = dialog.card;
-  const button = card.querySelector("#workspacePick");
-  const input = card.querySelector("#workspacePath");
-  const error = card.querySelector("#workspaceError");
+async function pickWorkspace(button) {
+  if (state.switching) return;
+  const label = button.innerHTML;
   button.disabled = true;
-  button.textContent = "等待 Finder 选择…";
+  button.textContent = "等待选择…";
   try {
     const data = await api("/api/workspace/pick", {});
     if (data.cancelled || !data.path) {
       toast("已取消选择");
-      button.disabled = false;
-      button.innerHTML = PICKER_LABEL;
       return;
     }
-    input.value = data.path;
-    submitWorkspace(dialog);
-  } catch (err) {
-    error.hidden = false;
-    error.textContent = err.message;
-    button.disabled = false;
-    button.innerHTML = PICKER_LABEL;
+    await switchToWorkspace(data.path);
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    if (document.body.contains(button)) {
+      button.disabled = false;
+      button.innerHTML = label;
+    }
   }
 }
 
-async function submitWorkspace(dialog) {
-  const card = dialog.card;
-  const input = card.querySelector("#workspacePath");
-  const error = card.querySelector("#workspaceError");
-  const button = card.querySelector(".modal-foot .btn.primary");
-  const path = input.value.trim();
-  if (!path) {
-    error.hidden = false;
-    error.textContent = "请输入目录路径";
+async function switchToWorkspace(path) {
+  if (!path || state.switching) return;
+  if (path === state.workspace) {
+    toast("当前已经是这个目录");
+    closeMenu();
     return;
   }
-
-  button.disabled = true;
-  const label = button.textContent;
-  button.textContent = "切换中…";
+  state.switching = true;
   try {
     const data = await api("/api/workspace", { path });
     if (data.workspace === state.workspace) {
-      dialog.close();
       toast("当前已经是这个目录");
+      closeMenu();
       return;
     }
     rememberWorkspace(data.workspace);
-    dialog.close();
+    closeMenu();
     await resetToWorkspace(data);
     toast("已切换到 " + (basename(data.workspace) || data.workspace));
-  } catch (err) {
-    error.hidden = false;
-    error.textContent = err.message;
-    button.disabled = false;
-    button.textContent = label;
-    const picker = card.querySelector("#workspacePick");
-    if (picker) {
-      picker.disabled = false;
-      picker.innerHTML = PICKER_LABEL;
-    }
+  } catch (error) {
+    toast("切换失败：" + error.message, "error");
+  } finally {
+    state.switching = false;
   }
 }
 
@@ -1620,8 +1576,11 @@ function openMenu(anchor, items, options) {
   state.menuAnchor = anchor;
   el.menuLayer.hidden = false;
   const menu = document.createElement("div");
-  menu.className = "menu";
+  menu.className = "menu" + (opts.className ? " " + opts.className : "");
 
+  if (opts.html) {
+    menu.innerHTML = opts.html;
+  } else {
   for (const item of items) {
     if (!item) continue;
     if (item.sep) {
@@ -1660,6 +1619,7 @@ function openMenu(anchor, items, options) {
       if (item.onClick) item.onClick();
     });
     menu.appendChild(button);
+  }
   }
 
   el.menuLayer.appendChild(menu);
@@ -2302,7 +2262,7 @@ function bindEvents() {
 
   el.themeBtn.addEventListener("click", () => openThemeMenu(el.themeBtn));
   el.moreBtn.addEventListener("click", () => openMoreMenu(el.moreBtn));
-  el.workspaceChip.addEventListener("click", openWorkspaceModal);
+  el.workspaceChip.addEventListener("click", openWorkspaceMenu);
   el.modelChip.addEventListener("click", () => openModelMenu(el.modelChip));
   el.thinkChip.addEventListener("click", () => openThinkMenu(el.thinkChip));
   el.ctxChip.addEventListener("click", () => openContextMenu(el.ctxChip));

@@ -490,7 +490,7 @@ async function handleApi(req, res, url) {
 
   if (path === "/api/workspace/pick") {
     if (process.platform !== "darwin") {
-      return json(res, 501, { error: "当前系统不支持系统选择框，请手动输入路径" });
+      return json(res, 501, { error: "当前系统暂不支持打开系统目录选择框" });
     }
     try {
       const picked = await new Promise((resolvePick, rejectPick) => {
