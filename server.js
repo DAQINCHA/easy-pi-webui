@@ -576,7 +576,7 @@ async function handleApi(req, res, url) {
     try {
       const picked = await new Promise((resolvePick, rejectPick) => {
         execFile(
-          "osascript",
+          "/usr/bin/osascript",
           ["-e", 'POSIX path of (choose folder with prompt "选择 pi 的工作目录")'],
           { timeout: 180000, maxBuffer: 1024 * 1024 },
           (error, stdout, stderr) => {

@@ -19,7 +19,7 @@ const el = {
   themeBtn: $("themeBtn"),
   menuBtn: $("menuBtn"),
   title: $("sessionTitle"),
-  sub: $("sessionSub"),
+  brandVersion: $("brandVersion"),
   moreBtn: $("moreBtn"),
   thread: $("thread"),
   messages: $("messages"),
@@ -364,7 +364,7 @@ async function pickWorkspace(button) {
   if (state.switching) return;
   const label = button.innerHTML;
   button.disabled = true;
-  button.textContent = "等待选择…";
+  button.textContent = "正在打开…";
   try {
     const data = await api("/api/workspace/pick", {});
     if (data.cancelled || !data.path) {
@@ -462,7 +462,7 @@ async function resetToWorkspace(data) {
 function updateHeader() {
   const title = sessionTitle();
   el.title.textContent = title;
-  el.sub.textContent = ("Pi " + state.piVersion).trim();
+  if (el.brandVersion) el.brandVersion.textContent = ("Pi " + state.piVersion).trim();
   document.title = title + " · Pi webui";
 }
 

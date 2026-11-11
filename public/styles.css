@@ -395,14 +395,10 @@ html[data-theme="dark"] .workspace:hover { background: #26262a; }
 .ws-icon {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--text-1) 8%, transparent);
-  color: var(--text-2);
+  color: var(--text-3);
   flex: none;
 }
-.ws-icon svg { width: 14px; height: 14px; }
+.ws-icon svg { width: 16px; height: 16px; }
 .ws-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
 .ws-name {
   font-size: 13px;
@@ -461,9 +457,14 @@ html[data-mode="system"] .theme-mode-system { display: block; }
   font-weight: 550;
   color: var(--text-1);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  max-width: 60%;
 }
-.title-sub { font-size: 11.5px; color: var(--text-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand-version {
+  margin-left: auto;
+  padding-right: 2px;
+  font-size: 10.5px;
+  color: var(--text-4);
+  white-space: nowrap;
+}
 
 .topbar-right { display: flex; align-items: center; gap: 4px; }
 
@@ -1378,7 +1379,6 @@ body.resizing .sidebar { transition: none; }
   .composer-shell { padding: 8px 12px calc(10px + env(safe-area-inset-bottom)); }
   .composer { border-radius: 16px; }
   .bubble { max-width: 90%; }
-  .title-sub { display: none; }
   .empty { padding-top: 8vh; }
   .to-bottom { bottom: 120px; }
 }
