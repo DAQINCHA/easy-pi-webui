@@ -1,12 +1,12 @@
 # pi webui 下一阶段交接清单
 
-写于 2026-11-11。给接手的 AI：这是一份实现清单，不是设计讨论。按顺序做，每阶段独立可用、可回滚。
+写于 2026-11-11。**进度（2026-11-11）：阶段 A / B / C 已全部完成，只剩阶段 D（PWA）未开始。** 给接手的 AI：这是一份实现清单，不是设计讨论。按顺序做，每阶段独立可用、可回滚。
 
 ## 0. 先读这些
 
 - 项目：`node-server/new-pi-webui`
 - 技术栈：原生 Node（`node:http` / `fs` / `child_process`）+ 原生 HTML/CSS/JS。**零 npm 依赖、无构建步骤**。
-- 运行：`PI_WORKSPACE="/Users/daqincha/Library/Mobile Documents/com~apple~CloudDocs/Coding" node server.js`，默认端口 30142。
+- 运行：`cd node-server/new-pi-webui && npm start`（或双击 `启动 Pi WebUI.command`），默认端口 30142。工作目录不再由启动命令固定，按「`--workspace` > `PI_WORKSPACE` > 本机保存 > 页面首次选择」决定；本机配置在 `~/.config/new-pi-webui/settings.json`。
 - 结构：
   - `server.js`：HTTP/SSE、会话桥管理、自动命名、归档、删除
   - `lib/pi-bridge.js`：`pi --mode rpc` 子进程、JSONL 分帧、事件回放、主动/被动退出标记
@@ -205,7 +205,7 @@
 
 ## 阶段 C：本轮改动摘要 + 完成通知
 
-**状态：已完成（2026-11-11）。** SW 版通知的 `notificationclick` / `clients.matchAll` 聚焦留到阶段 D 的 `sw.js`；目前没注册 SW 时走普通 `new Notification` + `onclick` 聚焦。下面是当时的实现说明，留作参考。
+**状态：已完成（2026-11-11）。** 摘要后来按用户给的两张截图改成「居中、默认收起的胶囊 + 点开逐文件清单」：只显示文件数与所在目录，**不显示增删行数、不显示命令数、不做撤销按钮**，没有记录到文件改动的轮次不显示胶囊（撤销与精确行数超出范围，需另行定边界）。SW 版通知的 `notificationclick` / `clients.matchAll` 聚焦留到阶段 D 的 `sw.js`；目前没注册 SW 时走普通 `new Notification` + `onclick` 聚焦。下面是当时的实现说明，留作参考。
 
 ### 目标
 
@@ -265,6 +265,8 @@
 ---
 
 ## 阶段 D：PWA
+
+**状态：未开始，这是下一步。** 阶段 A / B / C 已完成，不需要重做。
 
 ### 目标
 
@@ -342,10 +344,10 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
 
 ## 实施顺序与里程碑
 
-1. **A 工作区切换**（改动服务端核心状态，先做，后面功能都建立在“当前 workspace”之上）
-2. **B 分支/编辑/重生成**（风险最高，先做 fork 语义实验）
-3. **C 摘要 + 通知**（纯前端，独立）
-4. **D PWA**（最后做，避免 SW 缓存干扰前面阶段的调试）
+1. **A 工作区切换** — 已完成（2026-11-11）
+2. **B 分支/编辑/重生成** — 已完成（2026-11-11，全量实现；fork 语义实测结论在 `server.js` 的 `/api/fork` 注释里）
+3. **C 摘要 + 通知** — 已完成（2026-11-11；摘要最终改为居中胶囊 + 展开清单，只讲文件改动）
+4. **D PWA** — **未开始，下一步**（最后做，避免 SW 缓存干扰前面阶段的调试）
 
 每个阶段结束都要：
 
@@ -389,7 +391,7 @@ npm run check
 
 > 你在 `node-server/new-pi-webui` 里实现下一阶段功能。先读 `docs/handoff-next-features.md` 和仓库根 `AGENTS.md`，再读 `server.js`、`lib/pi-bridge.js`、`lib/sessions.js`、`public/js/app.js`。
 >
-> 阶段 A 已完成，不要重做；从阶段 B → C → D 顺序做，每个阶段完成后运行 `npm run check`，并用无头 Chrome 按验收项实际点一遍（截图、量尺寸、收控制台报错）。这是原生 JS + 零依赖项目，不要添加任何 npm 包或构建步骤。
+> 阶段 A / B / C 已完成，不要重做；接下来只做阶段 D（PWA）。每个阶段完成后运行 `npm run check`，并用无头 Chrome 按验收项实际点一遍（截图、量尺寸、收控制台报错）。这是原生 JS + 零依赖项目，不要添加任何 npm 包或构建步骤。
 >
 > 阶段 B 必须先做文档里写的 fork 语义实验，按实测结果实现，不要凭猜测。
 >

@@ -61,8 +61,8 @@ const state = {
   forkMessages: [],
   forkBusy: false,
   turnFiles: new Map(),
-  turnCommands: 0,
   turnSummary: null,
+  turnSummaryOpen: false,
   replaying: false,
   models: [],
   commands: [],
@@ -1007,39 +1007,69 @@ function messageNode(message, index, ctx = {}) {
   return null;
 }
 
-// 已知限制：只统计 edit / write 的 args.path 和 bash 次数；
-// codemode 之类在内部间接写文件的调用统计不到。
+// 胶囊只讲「文件更改情况」：只统计 edit / write 的 args.path。
+// bash / codemode 之类间接写文件拿不到路径，这一轮没记录到文件就不显示胶囊。
 function buildTurnSummary() {
   const files = [...state.turnFiles.keys()];
-  const commands = state.turnCommands;
-  if (!files.length && !commands) return null;
-  return { files, commands };
+  return files.length ? { files } : null;
+}
+
+/** 相对工作区显示文件所在目录；不在工作区里就退回原目录。 */
+function turnFileDir(file) {
+  const normalized = String(file || "").replace(/\\/g, "/");
+  const slash = normalized.lastIndexOf("/");
+  const dir = slash >= 0 ? normalized.slice(0, slash) : "";
+  const ws = String(state.workspace || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (ws && (dir === ws || dir.startsWith(ws + "/"))) {
+    const rel = dir.slice(ws.length).replace(/^\/+/, "");
+    return rel || basename(ws) || ".";
+  }
+  return dir;
 }
 
 function renderTurnSummary() {
   const summary = state.turnSummary;
-  if (!summary) return;
-  const files = summary.files || [];
-  const commands = summary.commands || 0;
-  if (!files.length && !commands) return;
-
-  const shown = files
-    .slice(0, 5)
-    .map((file) => "<code>" + escapeHtml(basename(file) || file) + "</code>")
-    .join("、");
-  let text = "";
-  if (files.length) {
-    text = "本轮改动 " + files.length + " 个文件：" + shown;
-    if (files.length > 5) text += " 等 " + files.length + " 个";
-  }
-  if (commands) text += (text ? " · " : "") + "运行 " + commands + " 条命令";
+  if (!summary || !summary.files.length) return;
+  const files = summary.files;
 
   const node = document.createElement("div");
   node.className = "turn-summary";
-  node.innerHTML =
-    (files.length ? ICON("file") : "") +
-    (commands ? ICON("terminal") : "") +
-    "<span>" + text + "</span>";
+
+  // 默认收起的胶囊：只显示文件数，不显示增删行数、不显示命令数。
+  const label = files.length + " 个文件已更改";
+  const pill = document.createElement("button");
+  pill.type = "button";
+  pill.className = "turn-pill" + (state.turnSummaryOpen ? " open" : "");
+  pill.setAttribute("aria-expanded", String(state.turnSummaryOpen));
+  pill.innerHTML =
+    "<span>" + escapeHtml(label) + "</span>" +
+    '<span class="turn-chev">' + ICON("down") + "</span>";
+
+  // 点开后的清单：文件名 + 所在目录，逐文件列全。
+  const card = document.createElement("div");
+  card.className = "turn-card";
+  card.hidden = !state.turnSummaryOpen;
+  const list = document.createElement("div");
+  list.className = "turn-list";
+  for (const file of files) {
+    const row = document.createElement("div");
+    row.className = "turn-file";
+    row.innerHTML =
+      '<span class="turn-file-name">' + escapeHtml(basename(file) || file) + "</span>" +
+      '<span class="turn-file-dir">' + escapeHtml(turnFileDir(file)) + "</span>";
+    list.appendChild(row);
+  }
+  card.appendChild(list);
+
+  pill.addEventListener("click", () => {
+    state.turnSummaryOpen = !state.turnSummaryOpen;
+    card.hidden = !state.turnSummaryOpen;
+    pill.classList.toggle("open", state.turnSummaryOpen);
+    pill.setAttribute("aria-expanded", String(state.turnSummaryOpen));
+  });
+
+  node.appendChild(pill);
+  node.appendChild(card);
   el.messages.appendChild(node);
 }
 
@@ -1588,8 +1618,8 @@ function handleEvent(event) {
       state.activity = "pi 正在工作";
       // 每轮重新统计「本轮改了什么」。
       state.turnFiles = new Map();
-      state.turnCommands = 0;
       state.turnSummary = null;
+      state.turnSummaryOpen = false;
       updateSendState();
       updateWorking();
       renderSessions();
@@ -1616,12 +1646,11 @@ function handleEvent(event) {
     case "tool_execution_start": {
       state.liveToolIds.add(event.toolCallId);
       state.toolLive.set(event.toolCallId, { partial: true, content: [], toolName: event.toolName, startedAt: Date.now() });
-      // 只认 edit / write 的 args.path 与 bash 次数（见 buildTurnSummary 的注释）。
+      // 只认 edit / write 的 args.path（见 buildTurnSummary 的注释）。
       const args = event.args || {};
       if ((event.toolName === "edit" || event.toolName === "write") && args.path) {
         state.turnFiles.set(args.path, event.toolName);
       }
-      if (event.toolName === "bash") state.turnCommands += 1;
       state.activity = "运行 " + event.toolName + "…";
       updateToolDom(event.toolCallId);
       updateWorking();
