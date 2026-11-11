@@ -73,11 +73,14 @@ const state = {
   stats: {},
   streaming: false,
   live: null,
-  streamEl: null,
   optimisticEl: null,
+  // 当前轮次（turn）的 DOM 节点，重绘时按它定位插入点。
+  lastTurnNodes: [],
   toolResults: new Map(),
   toolLive: new Map(),
   toolOpen: new Map(),
+  // 过程组（相邻思考/工具）的展开状态，键是 "m<消息序号>:g<组序号>"。
+  procOpen: new Map(),
   openThink: false,
   attachments: [],
   filter: "",
@@ -589,7 +592,6 @@ async function resetToWorkspace(data) {
   state.queue = 0;
   state.attachments = [];
   state.live = null;
-  state.streamEl = null;
   state.optimisticEl = null;
   state.toolResults.clear();
   state.toolLive.clear();
@@ -839,14 +841,19 @@ function toolBodyHtml(call, result) {
 
 function toolCardHtml(call, result) {
   const meta = toolMeta(call);
-  const running = !result || result.partial;
+  const pending = !result || result.partial;
+  // 没有结果又已经不在流式里，说明这一条是被中止/中断的，不要再转圈。
+  const running = pending && state.streaming;
+  const stopped = pending && !state.streaming;
   const error = Boolean(result && result.isError);
   const open = isToolOpen(call, result);
   const duration = result && result.durationMs ? fmtDuration(result.durationMs) : "";
   const status = running
     ? '<span class="spin"></span>'
-    : (error ? '<span class="err">' + ICON("alert") + "</span>" : '<span class="ok">' + ICON("check") + "</span>") +
-      (duration ? "<span>" + duration + "</span>" : "");
+    : stopped
+      ? '<span class="stopped">' + ICON("stop") + "已停止</span>"
+      : (error ? '<span class="err">' + ICON("alert") + "</span>" : '<span class="ok">' + ICON("check") + "</span>") +
+        (duration ? "<span>" + duration + "</span>" : "");
   return (
     '<div class="tool' + (error ? " is-error" : "") + (open ? " open" : "") + '" data-tool-id="' + escapeHtml(call.id || "") + '">' +
     '<button class="tool-head" type="button" data-tool-toggle>' +
@@ -866,11 +873,216 @@ function contentBlocks(message) {
   return Array.isArray(message.content) ? message.content : [];
 }
 
-function blockHtml(block, live) {
+/* ------------------------- 轮次（turn）模型 ------------------------ */
+
+// 一轮 = 一条用户消息之后、下一条用户消息之前的全部内容。
+// 过程组的边界只看「连续」，不看消息：同一轮里跨消息相邻的思考/工具也合成一条。
+function buildTurns(messages) {
+  const turns = [];
+  let current = null;
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (!message || message.role === "system") continue;
+    if (message.role === "user") {
+      current = { index: turns.length, user: { message, index }, parts: [] };
+      turns.push(current);
+      continue;
+    }
+    if (!current) {
+      current = { index: turns.length, user: null, parts: [] };
+      turns.push(current);
+    }
+    current.parts.push({ message, index });
+  }
+  return turns;
+}
+
+// 工具结果已经并进调用卡片里，只有找不到对应调用的孤儿结果才单独成节点。
+function collectToolCallIds(extraBlocks) {
+  const ids = new Set();
+  const add = (blocks) => {
+    for (const block of blocks || []) {
+      if (block && block.type === "toolCall" && block.id) ids.add(block.id);
+    }
+  };
+  for (const message of state.messages) {
+    if (message && message.role === "assistant") add(contentBlocks(message));
+  }
+  add(extraBlocks);
+  return ids;
+}
+
+// 把一轮切成可见单元：正文（text）、过程组（proc）、单独成节点的其他内容（other）。
+// 正文永远单独一段，不会被吞进过程组。
+// 组键 = 轮序号 + 组序号：消息只会往后追加，所以键在流式、重连、重绘之间都稳定。
+function turnSegments(turn, liveBlocks) {
+  const segments = [];
+  let run = null;
+  let ordinal = 0;
+  const toolCallIds = collectToolCallIds(liveBlocks);
+
+  const addBlocks = (blocks, live) => {
+    for (const block of blocks || []) {
+      if (!block) continue;
+      if (block.type === "thinking" || block.type === "toolCall") {
+        // 空的思考块静态渲染时本来就不显示，跳过；组序号已经先占好，不会错位。
+        if (block.type === "thinking" && !live && !String(block.thinking || block.text || "").trim()) continue;
+        if (!run) {
+          run = { type: "proc", key: "t" + turn.index + ":g" + ordinal, ordinal, members: [] };
+          ordinal += 1;
+          segments.push(run);
+        }
+        run.members.push({ block, live });
+        continue;
+      }
+      if (block.type !== "text") continue;
+      run = null;
+      segments.push({ type: "text", block, live });
+    }
+  };
+
+  for (const part of turn.parts) {
+    const message = part.message;
+    if (message.role === "assistant") {
+      addBlocks(contentBlocks(message), false);
+      continue;
+    }
+    if (message.role === "toolResult") {
+      if (message.toolCallId && toolCallIds.has(message.toolCallId)) continue;
+      run = null;
+      segments.push({ type: "other", message, index: part.index });
+      continue;
+    }
+    if (message.role === "custom" || message.role === "developer") {
+      run = null;
+      segments.push({ type: "other", message, index: part.index });
+    }
+  }
+  if (liveBlocks && liveBlocks.length) addBlocks(liveBlocks, true);
+  return segments.filter((segment) => segment.type !== "proc" || segment.members.length);
+}
+
+// 汇总只讲真实数据：步骤总数、真实完成进度、真实失败数；不编比例。
+function procStats(members) {
+  let tools = 0;
+  let done = 0;
+  let failed = 0;
+  let aborted = 0;
+  let running = 0;
+  for (const member of members) {
+    if (member.block.type !== "toolCall") continue;
+    const id = member.block.id;
+    tools += 1;
+    const result = state.toolResults.get(id) || state.toolLive.get(id);
+    if (!result || result.partial) {
+      // 流式中就是真的在跑；已经不在流式还没结果，那就是被中止的。
+      if (state.streaming) running += 1;
+      else aborted += 1;
+      continue;
+    }
+    if (result.isError) failed += 1;
+    done += 1;
+  }
+  // 最后一项还是流式中的思考块，说明它正在写，不能当已完成。
+  const tail = members[members.length - 1];
+  const thinkingLive = Boolean(tail && tail.live && tail.block.type === "thinking");
+
+  let icon;
+  let stateText;
+  let tone;
+  if (failed) {
+    icon = running || thinkingLive ? '<span class="spin"></span>' : ICON("alert");
+    stateText = failed + " 个失败" + (running && tools ? " · " + done + "/" + tools : "");
+    tone = "err";
+  } else if (running || thinkingLive) {
+    icon = '<span class="spin"></span>';
+    stateText = tools ? "进行中 " + done + "/" + tools : "思考中";
+    tone = "run";
+  } else if (aborted) {
+    icon = ICON("stop");
+    stateText = "已停止";
+    tone = "stop";
+  } else {
+    icon = ICON("check");
+    stateText = "已完成";
+    tone = "ok";
+  }
+  return { title: members.length + " 个步骤", stateText, icon, tone };
+}
+
+// 流式里的工具调用只有 argsJson，得先解析成 arguments 才能渲染参数。
+function procMemberHtml(member) {
+  const block = member.block;
+  if (member.live && block.type === "toolCall") {
+    const call = { id: block.id, name: block.name, arguments: parseArgs(block) };
+    return toolCardHtml(call, state.toolResults.get(block.id) || state.toolLive.get(block.id));
+  }
+  return blockHtml(block, member.live);
+}
+
+// 折叠时只渲染组头，展开时才渲染里面的卡片：长任务不会因为重绘而变卡。
+function procHtml(segment) {
+  const open = state.procOpen.get(segment.key) || false;
+  const stats = procStats(segment.members);
+  const body = open ? segment.members.map(procMemberHtml).join("") : "";
+  return (
+    '<div class="proc' + (open ? " open" : "") + '" data-proc-key="' + escapeHtml(segment.key) + '">' +
+    '<button class="proc-head" type="button" data-proc-toggle aria-expanded="' + (open ? "true" : "false") + '">' +
+    '<span class="proc-ico ' + stats.tone + '">' + stats.icon + "</span>" +
+    '<span class="proc-title">' + escapeHtml(stats.title) + "</span>" +
+    '<span class="proc-state ' + stats.tone + '">' + escapeHtml(stats.stateText) + "</span>" +
+    '<span class="chev">' + ICON("right") + "</span>" +
+    "</button>" +
+    '<div class="proc-body"' + (open ? "" : " hidden") + ">" + body + "</div>" +
+    "</div>"
+  );
+}
+
+function segmentsHtml(segments, options = {}) {
+  let html = "";
+  segments.forEach((segment, position) => {
+    if (segment.type === "proc") {
+      html += procHtml(segment);
+      return;
+    }
+    if (segment.type !== "text") return;
+    const caret = Boolean(options.caret) && position === segments.length - 1;
+    html += blockHtml(segment.block, segment.live, caret);
+  });
+  return html;
+}
+
+function otherHtml(segment) {
+  const message = segment.message;
+  if (message.role === "toolResult") {
+    const call = {
+      id: message.toolCallId || "orphan-" + segment.index,
+      name: message.toolName || "tool",
+      arguments: {},
+    };
+    return toolCardHtml(call, { content: message.content, isError: message.isError, durationMs: message.durationMs });
+  }
+  return '<div class="markdown">' + renderMarkdown(textOf(message)) + "</div>";
+}
+
+// 由组键反查这一段内容（展开时要按需填充卡片）。
+function findProcSegment(key) {
+  const match = /^t(\d+):g(\d+)$/.exec(String(key || ""));
+  if (!match) return null;
+  const turns = buildTurns(state.messages);
+  const index = Number(match[1]);
+  const turn = turns[index];
+  if (!turn) return null;
+  const liveBlocks = state.live && index === turns.length - 1 ? state.live.blocks : null;
+  const segments = turnSegments(turn, liveBlocks);
+  return segments.find((segment) => segment.type === "proc" && segment.ordinal === Number(match[2])) || null;
+}
+
+function blockHtml(block, live, caret) {
   if (!block) return "";
   if (block.type === "text") {
     if (!live && !String(block.text || "").trim()) return "";
-    return '<div class="markdown">' + renderMarkdown(block.text || "") + "</div>";
+    return '<div class="markdown' + (caret ? " is-streaming" : "") + '">' + renderMarkdown(block.text || "") + "</div>";
   }
   if (block.type === "thinking") {
     const text = block.thinking || block.text || "";
@@ -963,76 +1175,137 @@ function userNode(message, index, ctx = {}) {
   return node;
 }
 
-// 回复的第一个可见内容块是思考/工具卡片时，头像要下移对齐卡片首行（见 styles.css 的 lead-* 规则）。
-// 空的 text/thinking 块静态渲染时不会输出内容，判断时同样跳过。
-function leadAlignClass(blocks) {
-  for (const block of blocks || []) {
-    if (!block) continue;
-    if (block.type === "thinking") {
-      if (String(block.thinking || block.text || "").trim()) return " lead-think";
+// 首个可见段是过程组时，头像要跟着下移对齐组首行（见 styles.css 的 lead-* 规则）。
+function leadAlignClass(segments) {
+  const first = (segments || [])[0];
+  if (!first) return "";
+  return first.type === "proc" ? "lead-proc" : "";
+}
+
+function lastUserAndAssistant() {
+  let lastUser = null;
+  let lastAssistant = null;
+  for (const message of state.messages) {
+    if (!message) continue;
+    if (message.role === "user") lastUser = message;
+    if (message.role === "assistant") lastAssistant = message;
+  }
+  return { lastUser, lastAssistant };
+}
+
+function turnContext(turn, options) {
+  const opts = options || {};
+  const forkMap = forkEntryMap();
+  const { lastUser, lastAssistant } = lastUserAndAssistant();
+  const userMessage = turn.user ? turn.user.message : null;
+  const ownsLastAssistant = Boolean(lastAssistant) && turn.parts.some((part) => part.message === lastAssistant);
+  return {
+    user: {
+      forkEntryId: userMessage ? forkMap.get(userMessage) || null : null,
+      hasImages: userMessage ? imageBlocks(userMessage).length > 0 : false,
+      isLastUser: Boolean(userMessage) && userMessage === lastUser,
+    },
+    regenEntryId: ownsLastAssistant && userMessage ? forkMap.get(userMessage) || null : null,
+    liveBlocks: opts.liveBlocks || null,
+    streaming: Boolean(opts.streaming),
+    refresh: Boolean(opts.refresh),
+  };
+}
+
+// 一轮渲染成若干节点：用户气泡 + 助手内容。
+// 过程组跨消息合并，正文独立成段；孤儿工具结果 / 自定义消息单独成节点。
+function turnNodes(turn, ctx) {
+  const nodes = [];
+  if (turn.user) {
+    const node = userNode(turn.user.message, turn.user.index, ctx.user);
+    node.setAttribute("data-turn", String(turn.index));
+    nodes.push(node);
+  }
+
+  const segments = turnSegments(turn, ctx.liveBlocks);
+  const chunks = [];
+  let buffer = [];
+  for (const segment of segments) {
+    if (segment.type === "other") {
+      if (buffer.length) chunks.push({ segments: buffer });
+      buffer = [];
+      chunks.push({ other: segment });
       continue;
     }
-    if (block.type === "toolCall") return " lead-tool";
-    if (block.type === "text" && String(block.text || "").trim()) return "";
+    buffer.push(segment);
   }
-  return "";
-}
+  if (buffer.length) chunks.push({ segments: buffer });
 
-function assistantNode(message, ctx = {}) {
-  const node = document.createElement("div");
-  const blocks = contentBlocks(message);
-  node.className = "msg assistant" + leadAlignClass(blocks);
-  let html = '<div class="avatar"><img src="logo.svg" alt=""></div><div class="body">';
-  for (const block of blocks) html += blockHtml(block, false);
-  let footHtml = '<button class="action" type="button" data-act="copy-bot">' + ICON("copy") + "复制</button>";
-  if (ctx.regenEntryId) {
-    footHtml += forkButton("regen-bot", ctx.regenEntryId, "重新生成", false, "从这条回答对应的消息重新开始");
-  }
-  html += '<div class="msg-foot">' + footHtml + "</div></div>";
-  node.innerHTML = html;
-  return node;
-}
+  // 脚注挂在最后一个「有正文或过程」的块上，不挂在孤儿卡片上。
+  let footAt = -1;
+  chunks.forEach((chunk, position) => {
+    if (chunk.segments) footAt = position;
+  });
+  const hasText = segments.some((segment) => segment.type === "text" && String(segment.block.text || "").trim());
 
-function toolResultNode(message) {
-  const call = {
-    id: message.toolCallId || "result-" + Math.random().toString(36).slice(2),
-    name: message.toolName || "tool",
-    arguments: {},
-  };
-  const node = document.createElement("div");
-  node.className = "msg assistant lead-tool";
-  node.innerHTML =
-    '<div class="avatar"><img src="logo.svg" alt=""></div><div class="body">' +
-    toolCardHtml(call, { content: message.content, isError: message.isError, durationMs: message.durationMs }) +
-    "</div>";
-  return node;
-}
-
-function hasToolCall(id) {
-  if (!id) return false;
-  for (const message of state.messages) {
-    if (message.role !== "assistant") continue;
-    for (const block of contentBlocks(message)) {
-      if (block && block.type === "toolCall" && block.id === id) return true;
-    }
-  }
-  return false;
-}
-
-function messageNode(message, index, ctx = {}) {
-  if (!message || message.role === "system") return null;
-  if (message.role === "user") return userNode(message, index, ctx);
-  if (message.role === "assistant") return assistantNode(message, ctx);
-  if (message.role === "toolResult") {
-    return hasToolCall(message.toolCallId) ? null : toolResultNode(message);
-  }
-  if (message.role === "custom" || message.role === "developer") {
+  chunks.forEach((chunk, position) => {
     const node = document.createElement("div");
-    node.className = "msg assistant";
-    node.innerHTML = '<div class="avatar"><img src="logo.svg" alt=""></div><div class="body"><div class="markdown">' + renderMarkdown(textOf(message)) + "</div></div>";
-    return node;
-  }
+    node.className = "msg assistant" + (ctx.refresh ? " refresh" : "");
+    node.setAttribute("data-turn", String(turn.index));
+    let html = '<div class="avatar"><img src="logo.svg" alt=""></div><div class="body">';
+    if (chunk.other) {
+      node.classList.add("lead-tool");
+      html += otherHtml(chunk.other);
+    } else {
+      const align = leadAlignClass(chunk.segments);
+      if (align) node.classList.add(align);
+      html += segmentsHtml(chunk.segments, { caret: ctx.streaming && position === chunks.length - 1 });
+    }
+    if (position === footAt) {
+      // 纯过程的一轮没有正文，就不放一个点了没反应的「复制」。
+      let footHtml = hasText ? '<button class="action" type="button" data-act="copy-bot">' + ICON("copy") + "复制</button>" : "";
+      if (ctx.regenEntryId) {
+        footHtml += forkButton("regen-bot", ctx.regenEntryId, "重新生成", false, "从这条回答对应的消息重新开始");
+      }
+      if (footHtml) html += '<div class="msg-foot">' + footHtml + "</div>";
+    }
+    html += "</div>";
+    node.innerHTML = html;
+    nodes.push(node);
+  });
+  return nodes;
+}
+
+// 重绘当前轮：流式逐帧、工具状态变化、消息结束都走这里。
+// 过程组折叠时只渲染组头，所以重绘成本只跟可见内容有关。
+function captureFocus() {
+  const active = document.activeElement;
+  if (!active || !el.messages.contains(active)) return null;
+  const group = active.closest("[data-proc-key]");
+  if (group) return '[data-proc-key="' + group.getAttribute("data-proc-key") + '"] [data-proc-toggle]';
+  const tool = active.closest("[data-tool-id]");
+  if (tool) return '[data-tool-id="' + tool.getAttribute("data-tool-id") + '"] [data-tool-toggle]';
   return null;
+}
+
+function restoreFocus(selector) {
+  if (!selector) return;
+  const target = el.messages.querySelector(selector);
+  if (target) target.focus();
+}
+
+function refreshCurrentTurn(options) {
+  const turns = buildTurns(state.messages);
+  const turn = turns[turns.length - 1] || (state.live ? { index: 0, user: null, parts: [] } : null);
+  if (!turn) return;
+  const focus = captureFocus();
+  const nodes = turnNodes(turn, turnContext(turn, Object.assign({}, options, { refresh: true })));
+  const first = state.lastTurnNodes && state.lastTurnNodes[0];
+  const sameTurn = Boolean(first) && first.getAttribute("data-turn") === String(turn.index);
+  if (sameTurn && first.parentNode) {
+    for (const node of nodes) first.parentNode.insertBefore(node, first);
+    for (const old of state.lastTurnNodes) old.remove();
+  } else {
+    for (const node of nodes) el.messages.appendChild(node);
+  }
+  state.lastTurnNodes = nodes;
+  el.empty.hidden = state.messages.length > 0 || state.streaming;
+  restoreFocus(focus);
 }
 
 // 胶囊只讲「文件更改情况」：只统计 edit / write 的 args.path。
@@ -1102,30 +1375,18 @@ function renderTurnSummary() {
 }
 
 function renderThread() {
-  state.streamEl = null;
   state.optimisticEl = null;
   indexToolResults();
   el.messages.innerHTML = "";
-  const forkMap = forkEntryMap();
-  const lastUser = [...state.messages].reverse().find((message) => message && message.role === "user");
-  const lastAssistant = [...state.messages].reverse().find((message) => message && message.role === "assistant");
-  let lastUserEntry = null;
-  const assistantRegen = new Map();
-  for (const message of state.messages) {
-    if (!message) continue;
-    if (message.role === "user") lastUserEntry = forkMap.get(message) || null;
-    if (message.role === "assistant") assistantRegen.set(message, lastUserEntry);
-  }
-  state.messages.forEach((message, index) => {
-    const ctx = {
-      forkEntryId: forkMap.get(message) || null,
-      hasImages: message && message.role === "user" ? imageBlocks(message).length > 0 : false,
-      isLastUser: message === lastUser,
-      regenEntryId: message === lastAssistant ? assistantRegen.get(message) || null : null,
-    };
-    const node = messageNode(message, index, ctx);
-    if (node) el.messages.appendChild(node);
+  let lastNodes = [];
+  const turns = buildTurns(state.messages);
+  turns.forEach((turn, position) => {
+    const liveBlocks = state.live && position === turns.length - 1 ? state.live.blocks : null;
+    const nodes = turnNodes(turn, turnContext(turn, { liveBlocks, streaming: Boolean(liveBlocks) }));
+    for (const node of nodes) el.messages.appendChild(node);
+    lastNodes = nodes;
   });
+  state.lastTurnNodes = lastNodes;
   el.empty.hidden = state.messages.length > 0 || state.streaming;
   // 摘要不写进 state.messages，每次重绘都重新插入一次，天然避免重复。
   renderTurnSummary();
@@ -1245,16 +1506,6 @@ function bindRail() {
 
 let liveFrame = 0;
 
-function ensureStreamEl() {
-  if (state.streamEl) return state.streamEl.querySelector(".stream-body");
-  const node = document.createElement("div");
-  node.className = "msg assistant streaming";
-  node.innerHTML = '<div class="avatar"><img src="logo.svg" alt=""></div><div class="body"><div class="stream-body"></div></div>';
-  el.messages.appendChild(node);
-  state.streamEl = node;
-  return node.querySelector(".stream-body");
-}
-
 function parseArgs(block) {
   if (block.arguments && typeof block.arguments === "object") return block.arguments;
   if (block.argsJson) {
@@ -1264,28 +1515,10 @@ function parseArgs(block) {
   return {};
 }
 
-function liveHtml() {
-  if (!state.live) return "";
-  let html = "";
-  for (const block of state.live.blocks) {
-    if (!block) continue;
-    if (block.type === "toolCall") {
-      const call = { id: block.id, name: block.name, arguments: parseArgs(block) };
-      html += toolCardHtml(call, state.toolResults.get(block.id) || state.toolLive.get(block.id));
-    } else {
-      html += blockHtml(block, true);
-    }
-  }
-  return html;
-}
-
 function renderLiveNow() {
   if (!state.live) return;
-  const body = ensureStreamEl();
-  if (!body) return;
   const near = scrollNearBottom();
-  body.innerHTML = liveHtml();
-  if (state.streamEl) state.streamEl.className = "msg assistant streaming" + leadAlignClass(state.live.blocks);
+  refreshCurrentTurn({ liveBlocks: state.live.blocks, streaming: true });
   if (near) scrollBottom(true);
 }
 
@@ -1298,10 +1531,6 @@ function scheduleLive() {
 }
 
 function dropStream() {
-  if (state.streamEl) {
-    state.streamEl.remove();
-    state.streamEl = null;
-  }
   state.live = null;
 }
 
@@ -1355,10 +1584,12 @@ function applySnapshot(snapshot) {
   state.thinkingLevel = (snapshot.state && snapshot.state.thinkingLevel) || "off";
   state.sessionName = (snapshot.state && snapshot.state.sessionName) || "";
   state.streaming = Boolean(snapshot.state && snapshot.state.isStreaming);
+  if (!state.streaming) state.live = null;
   state.queue = 0;
   state.toolResults.clear();
   state.toolLive.clear();
   state.toolOpen.clear();
+  state.procOpen.clear();
   if (switched) {
     state.attachments = [];
     renderAttachments();
@@ -1706,7 +1937,6 @@ function handleEvent(event) {
     case "message_start":
       if (event.message && event.message.role === "assistant") {
         state.live = { blocks: [] };
-        ensureStreamEl();
       }
       break;
 
@@ -1726,7 +1956,7 @@ function handleEvent(event) {
         state.turnFiles.set(args.path, event.toolName);
       }
       state.activity = "运行 " + event.toolName + "…";
-      updateToolDom(event.toolCallId);
+      updateToolDom();
       updateWorking();
       break;
     }
@@ -1736,7 +1966,7 @@ function handleEvent(event) {
         partial: true,
         content: event.partialResult && event.partialResult.content ? event.partialResult.content : [],
       });
-      updateToolDom(event.toolCallId);
+      updateToolDom();
       break;
 
     case "tool_execution_end":
@@ -1748,7 +1978,7 @@ function handleEvent(event) {
         done: true,
       });
       state.activity = "pi 正在工作";
-      updateToolDom(event.toolCallId);
+      updateToolDom();
       updateWorking();
       break;
 
@@ -1819,6 +2049,7 @@ function handleEvent(event) {
     case "bridge_exit":
       state.streaming = false;
       dropStream();
+      refreshCurrentTurn();
       updateSendState();
       updateWorking();
       updateHeader();
@@ -1885,10 +2116,9 @@ function applyLiveUpdate(update) {
 function finishMessage(message) {
   if (!message) return;
   if (message.role === "assistant") {
-    dropStream();
+    state.live = null;
     state.messages.push(message);
-    const node = assistantNode(message);
-    if (node) el.messages.appendChild(node);
+    refreshCurrentTurn();
     el.empty.hidden = true;
     // 最终答案（纯文字、没有继续调工具）出现的那一刻就收起工具卡片
     if (!contentBlocks(message).some((block) => block && block.type === "toolCall")) {
@@ -1902,7 +2132,12 @@ function finishMessage(message) {
       state.optimisticEl = null;
     }
     state.messages.push(message);
-    el.messages.appendChild(userNode(message, state.messages.length - 1));
+    // 新用户消息 = 新的一轮：渲染这一轮并追加到末尾。
+    const turns = buildTurns(state.messages);
+    const turn = turns[turns.length - 1];
+    const nodes = turn ? turnNodes(turn, turnContext(turn)) : [];
+    for (const node of nodes) el.messages.appendChild(node);
+    state.lastTurnNodes = nodes;
     el.empty.hidden = true;
     renderRail();
     scrollBottom();
@@ -1915,11 +2150,10 @@ function finishMessage(message) {
         durationMs: message.durationMs,
         done: true,
       });
-      updateToolDom(message.toolCallId);
-    } else {
-      const node = toolResultNode(message);
-      if (node) el.messages.appendChild(node);
     }
+    // 孤儿结果也走重绘，它会作为独立节点出现在当前轮里。
+    refreshCurrentTurn();
+    scrollBottom();
   }
 }
 
@@ -1937,34 +2171,10 @@ function collapseTools() {
   state.openThink = false;
 }
 
-function updateToolDom(toolCallId) {
-  if (!toolCallId) return;
-  const nodes = el.messages.querySelectorAll('[data-tool-id="' + String(toolCallId).replace(/"/g, '\\"') + '"]');
-  for (const node of nodes) {
-    const id = node.getAttribute("data-tool-id");
-    const call = findToolCall(id);
-    if (!call) continue;
-    node.outerHTML = toolCardHtml(call, state.toolResults.get(id) || state.toolLive.get(id));
-  }
+/* 工具状态一变就重绘当前轮：摘要里的进度/失败数、卡片状态都从这里更新。 */
+function updateToolDom() {
+  refreshCurrentTurn();
   scrollBottom();
-}
-
-function findToolCall(id) {
-  if (state.live) {
-    for (const block of state.live.blocks) {
-      if (block && block.type === "toolCall" && block.id === id) {
-        return { id: block.id, name: block.name, arguments: parseArgs(block) };
-      }
-    }
-  }
-  for (let i = state.messages.length - 1; i >= 0; i -= 1) {
-    const message = state.messages[i];
-    if (message.role !== "assistant") continue;
-    for (const block of contentBlocks(message)) {
-      if (block && block.type === "toolCall" && block.id === id) return block;
-    }
-  }
-  return { id, name: state.toolLive.get(id) ? state.toolLive.get(id).toolName : "tool", arguments: {} };
 }
 
 /* ------------------------------------------------------------------ */
@@ -3034,6 +3244,29 @@ function bindEvents() {
   el.toBottom.addEventListener("click", () => scrollBottom(true));
 
   el.messages.addEventListener("click", (event) => {
+    const procToggle = event.target.closest("[data-proc-toggle]");
+    if (procToggle) {
+      const group = procToggle.closest(".proc");
+      if (group) {
+        const key = group.getAttribute("data-proc-key");
+        const open = !(state.procOpen.get(key) || false);
+        if (open) state.procOpen.set(key, true);
+        else state.procOpen.delete(key);
+        group.classList.toggle("open", open);
+        procToggle.setAttribute("aria-expanded", open ? "true" : "false");
+        const body = group.querySelector(".proc-body");
+        if (body) {
+          // 折叠时组体是空的，展开才按需把卡片填进去。
+          if (open && !body.innerHTML) {
+            const segment = findProcSegment(key);
+            if (segment) body.innerHTML = segment.members.map(procMemberHtml).join("");
+          }
+          body.hidden = !open;
+        }
+      }
+      return;
+    }
+
     const toggle = event.target.closest("[data-tool-toggle]");
     if (toggle) {
       const card = toggle.closest(".tool");
@@ -3070,16 +3303,13 @@ function bindEvents() {
       }
       const node = action.closest(".msg");
       if (!node) return;
-      // 只复制正文，不要把「复制 / 编辑 / 重新生成」这些按钮文字带进去。
+      // 只复制正文，不要把过程摘要、卡片内容、「复制 / 编辑 / 重新生成」这些按钮文字带进去。
       const parts = [];
       const bubble = node.querySelector(".bubble");
       if (bubble) {
         parts.push(bubble.innerText);
       } else {
-        for (const child of node.querySelectorAll(".body > *")) {
-          if (child.classList && child.classList.contains("msg-foot")) continue;
-          parts.push(child.innerText);
-        }
+        for (const child of node.querySelectorAll(".body > .markdown")) parts.push(child.innerText);
       }
       const text = parts.join("\n").trim();
       if (text) {

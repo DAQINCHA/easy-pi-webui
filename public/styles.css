@@ -664,6 +664,8 @@ html[data-mode="system"] .theme-mode-system { display: block; }
   padding: 9px 0;
   animation: rise .26s var(--ease);
 }
+/* 流式时当前轮会反复重绘，别再播一次入场动画。 */
+.msg.refresh { animation: none; }
 .msg.user { flex-direction: column; align-items: flex-end; padding: 12px 0 8px; }
 
 .msg .avatar {
@@ -678,9 +680,9 @@ html[data-mode="system"] .theme-mode-system { display: block; }
   display: grid; place-items: center;
 }
 .msg .avatar img { width: 100%; height: 100%; display: block; }
-/* 首个内容块是卡片时头像跟着下移：工具卡首行中心 = 卡上边距 8 + 头内边距 8 + 图标半高 12 = 28px，思考卡 = 4 + 8 + 9 = 21px；头像 26px 高，中心在 margin-top + 13。 */
+/* 首个内容是过程组/工具卡时，头像跟着下移：组头首行中心 = 上边距 8 + 头高 32/2 = 24，头像 26 高、中心在 margin-top + 13。 */
 .msg.assistant.lead-tool .avatar { margin-top: 15px; }
-.msg.assistant.lead-think .avatar { margin-top: 8px; }
+.msg.assistant.lead-proc .avatar { margin-top: 11px; }
 .msg .body { flex: 1; min-width: 0; }
 
 .bubble {
@@ -914,6 +916,7 @@ html[data-mode="system"] .theme-mode-system { display: block; }
   animation: spin .8s linear infinite;
 }
 .tool-status .spin { margin-top: 1px; }
+.tool-status .stopped { display: inline-flex; align-items: center; gap: 4px; color: var(--text-4); }
 .tool .chev { color: var(--text-4); transition: transform .2s var(--ease); }
 .tool.open .chev { transform: rotate(90deg); }
 
@@ -959,6 +962,46 @@ html[data-mode="system"] .theme-mode-system { display: block; }
   background: color-mix(in srgb, var(--bg-code) 60%, transparent);
   border-bottom: 1px solid var(--border-soft);
 }
+
+/* -------------------------- process group ------------------------- */
+
+/* 相邻的思考/工具卡片收成一条摘要；展开后里面仍是原来那些卡片，参数、输出、
+   命令、diff、错误一条不少，也还是逐条展开、逐条复制。 */
+.proc { margin: 8px 0; }
+.proc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 9px;
+  border-radius: 9px;
+  border: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--bg-elev) 45%, transparent);
+  color: var(--text-3);
+  font-size: 12.5px;
+  text-align: left;
+  transition: background .16s var(--ease), border-color .16s var(--ease), color .16s var(--ease);
+}
+.proc-head:hover { background: var(--bg-hover); border-color: var(--border); color: var(--text-2); }
+.proc-ico { flex: none; display: grid; place-items: center; width: 14px; height: 14px; color: var(--text-4); }
+.proc-ico svg { width: 14px; height: 14px; }
+.proc-ico.ok { color: var(--green); }
+.proc-ico.err { color: var(--red); }
+.proc-title { flex: none; font-weight: 500; }
+.proc-state {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.proc-state.err { color: var(--red); }
+.proc-head .chev { flex: none; color: var(--text-4); transition: transform .2s var(--ease); }
+.proc.open .proc-head .chev { transform: rotate(90deg); }
+.proc-body { margin: 6px 0 0 7px; padding-left: 11px; border-left: 1px solid var(--border-soft); }
+.proc-body[hidden] { display: none; }
+.proc-body > .tool:first-child, .proc-body > .think:first-child { margin-top: 0; }
 
 /* ---------------------------- working ----------------------------- */
 
@@ -1034,7 +1077,7 @@ html[data-mode="system"] .theme-mode-system { display: block; }
 }
 .notice svg { width: 14px; height: 14px; flex: none; }
 
-.streaming .markdown > :last-child::after {
+.markdown.is-streaming > :last-child::after {
   content: "";
   display: inline-block;
   width: 7px; height: 15px;
