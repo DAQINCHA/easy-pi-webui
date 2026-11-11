@@ -34,6 +34,8 @@ const HOST = flags.host || process.env.HOST || "127.0.0.1";
 
 /** @type {Map<string, PiBridge>} */
 const bridges = new Map();
+const statusClients = new Set();
+const sessionRuntime = new Map();
 let piVersion = null;
 let sessionCache = { at: 0, list: [] };
 
@@ -146,14 +148,57 @@ function broadcast(bridge, record, seq) {
   }
 }
 
+function statusId(bridge) {
+  return bridge.key && bridge.key.startsWith("s:") ? bridge.key.slice(2) : null;
+}
+
+function statusSnapshot() {
+  const statuses = {};
+  for (const [id, item] of sessionRuntime) {
+    statuses[id] = {
+      running: item.running,
+      unread: !item.running && item.finishedAt > item.seenAt,
+    };
+  }
+  return statuses;
+}
+
+function broadcastStatus() {
+  if (!statusClients.size) return;
+  const payload = "event: status\ndata: " + JSON.stringify({ statuses: statusSnapshot() }) + "\n\n";
+  for (const res of statusClients) {
+    try {
+      res.write(payload);
+    } catch {
+      statusClients.delete(res);
+    }
+  }
+}
+
+function setRunning(bridge, running, finished = true) {
+  const id = statusId(bridge);
+  if (!id) return;
+  const item = sessionRuntime.get(id) || { running: false, finishedAt: 0, seenAt: 0 };
+  item.running = Boolean(running);
+  if (!running && finished) item.finishedAt = Date.now();
+  sessionRuntime.set(id, item);
+  broadcastStatus();
+}
+
 function wire(bridge) {
   bridge.clients = new Set();
   bridge.pendingUi = new Map();
   bridge.streaming = false;
 
   bridge.on("record", ({ seq, record }) => {
-    if (record.type === "agent_start") bridge.streaming = true;
-    if (record.type === "agent_settled") bridge.streaming = false;
+    if (record.type === "agent_start") {
+      bridge.streaming = true;
+      setRunning(bridge, true);
+    }
+    if (record.type === "agent_settled") {
+      bridge.streaming = false;
+      setRunning(bridge, false);
+    }
 
     if (record.type === "extension_ui_request") {
       const dialog = ["select", "confirm", "input", "editor"].includes(record.method);
@@ -171,6 +216,7 @@ function wire(bridge) {
 
   bridge.on("exit", ({ code, signal, intentional }) => {
     bridge.streaming = false;
+    setRunning(bridge, false, false);
     broadcast(
       bridge,
       { type: "bridge_exit", code: code ?? null, signal: signal ?? null, intentional: Boolean(intentional) },
@@ -420,6 +466,31 @@ async function handleApi(req, res, url) {
     return json(res, 200, { sessions: getSessions() });
   }
 
+  if (req.method === "GET" && path === "/api/session-events") {
+    res.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-store, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    });
+    res.write("retry: 2000\n\n");
+    res.write("event: status\ndata: " + JSON.stringify({ statuses: statusSnapshot() }) + "\n\n");
+    statusClients.add(res);
+    const ping = setInterval(() => {
+      try {
+        res.write(": ping\n\n");
+      } catch {
+        /* ignore */
+      }
+    }, 15000);
+    ping.unref?.();
+    req.on("close", () => {
+      clearInterval(ping);
+      statusClients.delete(res);
+    });
+    return undefined;
+  }
+
   if (req.method === "GET" && path === "/api/events") {
     const bridge = bridgeFor(url.searchParams.get("key") || "");
     const since = Number(url.searchParams.get("since") || req.headers["last-event-id"] || 0);
@@ -459,6 +530,16 @@ async function handleApi(req, res, url) {
   if (req.method !== "POST") return json(res, 404, { error: "not found" });
 
   const body = await readBody(req);
+
+  if (path === "/api/session/seen") {
+    const id = String(body.key || "").replace(/^s:/, "");
+    const item = sessionRuntime.get(id);
+    if (item) {
+      item.seenAt = Date.now();
+      broadcastStatus();
+    }
+    return json(res, 200, { ok: true });
+  }
 
   if (path === "/api/workspace") {
     const raw = String(body.path || "").trim();
@@ -542,9 +623,13 @@ async function handleApi(req, res, url) {
       if (bridge.sessionFile === target) doomed.push(key);
     }
     for (const key of doomed) {
+      sessionRuntime.delete(key.replace(/^s:/, ""));
       bridgeDispose(key);
     }
-    if (doomed.length) await new Promise((done) => setTimeout(done, 300));
+    if (doomed.length) {
+      broadcastStatus();
+      await new Promise((done) => setTimeout(done, 300));
+    }
     try {
       unlinkSync(target);
     } catch (error) {

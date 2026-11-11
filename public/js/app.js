@@ -223,13 +223,19 @@ function shortenPath(path) {
 
 function sessionItemHtml(session) {
   const active = state.key === "s:" + session.id;
-  const live = active && state.streaming;
+  const runtime = state.runtime.get(session.id);
+  const running = Boolean(runtime && runtime.running) || (active && state.streaming);
+  const unread = !running && Boolean(runtime && runtime.unread);
   const label = session.name || session.title;
   return (
     '<div class="session-wrap' + (session.archived ? " archived" : "") + '">' +
     '<button class="session-item' + (active ? " active" : "") + '" data-file="' + escapeHtml(session.file) + '">' +
     '<span class="row"><span class="t">' + escapeHtml(label) + "</span>" +
-    (live ? '<span class="live-dot"></span>' : "") +
+    (running
+      ? '<span class="session-spin" title="正在工作"></span>'
+      : unread
+        ? '<span class="unread-dot" title="已完成，未读"></span>'
+        : "") +
     "</span>" +
     '<span class="m">' + escapeHtml(relativeTime(session.updatedAt)) + "</span>" +
     "</button>" +
@@ -456,9 +462,7 @@ async function resetToWorkspace(data) {
 function updateHeader() {
   const title = sessionTitle();
   el.title.textContent = title;
-  el.sub.textContent = state.key
-    ? "Pi " + state.piVersion + " · " + (state.streaming ? "正在工作" : "就绪")
-    : "Pi " + state.piVersion;
+  el.sub.textContent = ("Pi " + state.piVersion).trim();
   document.title = title + " · Pi webui";
 }
 
@@ -1054,12 +1058,14 @@ async function openSession(file) {
   const snapshot = await api("/api/session/open", { file });
   applySnapshot(snapshot);
   connectStream();
+  markSeen(true);
 }
 
 async function newSession() {
   const snapshot = await api("/api/session/new", {});
   applySnapshot(snapshot);
   connectStream();
+  markSeen(true);
   el.input.focus();
 }
 
@@ -1087,6 +1093,46 @@ function connectStream() {
     handleEvent(record);
   });
   source.onerror = () => setStatus("连接中断，正在重连…");
+}
+
+function connectSessionEvents() {
+  if (state.statusEs) state.statusEs.close();
+  const source = new EventSource("/api/session-events");
+  state.statusEs = source;
+  source.addEventListener("status", (event) => {
+    const data = parseJson(event.data || "{}") || {};
+    state.runtime = new Map(Object.entries(data.statuses || {}));
+    renderSessions();
+    scheduleSessionRefresh();
+  });
+}
+
+function scheduleSessionRefresh() {
+  if (state.statusRefreshTimer) return;
+  state.statusRefreshTimer = setTimeout(() => {
+    state.statusRefreshTimer = 0;
+    refreshSessions();
+  }, 600);
+}
+
+function isViewing() {
+  return document.visibilityState === "visible" && document.hasFocus();
+}
+
+async function markSeen(force = false) {
+  if (!state.key) return;
+  if (!force && !isViewing()) return;
+  const id = state.key.replace(/^s:/, "");
+  try {
+    await api("/api/session/seen", { key: state.key });
+  } catch {
+    return;
+  }
+  const runtime = state.runtime.get(id);
+  if (runtime) {
+    runtime.unread = false;
+    renderSessions();
+  }
 }
 
 async function resync() {
@@ -1191,6 +1237,7 @@ function handleEvent(event) {
       updateHeader();
       collapseTools();
       renderSessions();
+      markSeen();
       refreshStats();
       refreshSessions();
       break;
@@ -2454,6 +2501,10 @@ function bindEvents() {
     syncNavToggle();
     renderRail();
   });
+  window.addEventListener("focus", () => markSeen());
+  document.addEventListener("visibilitychange", () => {
+    if (isViewing()) markSeen();
+  });
   bindRail();
 }
 
@@ -2475,6 +2526,7 @@ async function boot() {
     /* ignore */
   }
   applyTheme(theme === "light" || theme === "system" ? theme : "dark");
+  connectSessionEvents();
   systemTheme.addEventListener("change", () => {
     if (document.documentElement.dataset.mode === "system") applyTheme("system");
   });
