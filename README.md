@@ -1,6 +1,6 @@
 # easy-pi-webui
 
-给 [pi](https://pi.dev) 做的一个网页界面。外观照着 CodeBuddy Code 的 web-ui 做（纯黑背景、细边框、会话侧栏、工具卡片），底层用 pi 自己的 RPC 模式跑真实的 pi 会话。
+给 [pi](https://pi.dev) 做的一个网页界面，面向不写代码、不看代码的小白 vibecoder：不用记命令、不用读代码，打开网页就能给 pi 派活、看进度、管理会话。底层用 pi 自己的 RPC 模式跑真实的 pi 会话。
 
 零 npm 依赖：服务端只用 Node 内置模块，前端是原生 HTML/CSS/JS，没有构建步骤。
 
@@ -120,7 +120,7 @@ easy-pi-webui/
 │   ├── sw.js                 Service Worker（只缓存外壳）
 │   ├── icons/                安装图标 192 / 512 / maskable-512；180 待接入
 │   ├── logo.svg
-│   ├── styles.css       CodeBuddy 风格的设计变量与组件
+│   ├── styles.css       设计变量与组件样式
 │   └── js/
 │       ├── app.js       会话、流式渲染、菜单、弹窗
 │       └── markdown.js  无依赖 Markdown 渲染 + 轻量高亮
