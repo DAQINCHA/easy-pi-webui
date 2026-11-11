@@ -60,6 +60,10 @@ const state = {
   messages: [],
   forkMessages: [],
   forkBusy: false,
+  turnFiles: new Map(),
+  turnCommands: 0,
+  turnSummary: null,
+  replaying: false,
   models: [],
   commands: [],
   thinkingLevels: ["off"],
@@ -1003,6 +1007,42 @@ function messageNode(message, index, ctx = {}) {
   return null;
 }
 
+// 已知限制：只统计 edit / write 的 args.path 和 bash 次数；
+// codemode 之类在内部间接写文件的调用统计不到。
+function buildTurnSummary() {
+  const files = [...state.turnFiles.keys()];
+  const commands = state.turnCommands;
+  if (!files.length && !commands) return null;
+  return { files, commands };
+}
+
+function renderTurnSummary() {
+  const summary = state.turnSummary;
+  if (!summary) return;
+  const files = summary.files || [];
+  const commands = summary.commands || 0;
+  if (!files.length && !commands) return;
+
+  const shown = files
+    .slice(0, 5)
+    .map((file) => "<code>" + escapeHtml(basename(file) || file) + "</code>")
+    .join("、");
+  let text = "";
+  if (files.length) {
+    text = "本轮改动 " + files.length + " 个文件：" + shown;
+    if (files.length > 5) text += " 等 " + files.length + " 个";
+  }
+  if (commands) text += (text ? " · " : "") + "运行 " + commands + " 条命令";
+
+  const node = document.createElement("div");
+  node.className = "turn-summary";
+  node.innerHTML =
+    (files.length ? ICON("file") : "") +
+    (commands ? ICON("terminal") : "") +
+    "<span>" + text + "</span>";
+  el.messages.appendChild(node);
+}
+
 function renderThread() {
   state.streamEl = null;
   state.optimisticEl = null;
@@ -1029,6 +1069,8 @@ function renderThread() {
     if (node) el.messages.appendChild(node);
   });
   el.empty.hidden = state.messages.length > 0 || state.streaming;
+  // 摘要不写进 state.messages，每次重绘都重新插入一次，天然避免重复。
+  renderTurnSummary();
   renderRail();
   scrollBottom(true);
 }
@@ -1311,11 +1353,14 @@ function connectStream() {
   }
   state.lastSeq = 0;
   let helloed = false;
+  // hello 到达之前的事件都是断线重连的历史回放，不给它们补发通知。
+  state.replaying = true;
   const source = new EventSource("/api/events?key=" + encodeURIComponent(state.key));
   state.es = source;
   source.addEventListener("hello", (event) => {
     const data = parseJson(event.data || "{}") || {};
     state.lastSeq = data.seq || 0;
+    state.replaying = false;
     if (helloed) resync();
     helloed = true;
     setStatus("已连接");
@@ -1327,7 +1372,10 @@ function connectStream() {
     if (seq) state.lastSeq = Math.max(state.lastSeq, seq);
     handleEvent(record);
   });
-  source.onerror = () => setStatus("连接中断，正在重连…");
+  source.onerror = () => {
+    state.replaying = true;
+    setStatus("连接中断，正在重连…");
+  };
 }
 
 function connectSessionEvents() {
@@ -1387,10 +1435,10 @@ async function refreshForkMessages() {
   try {
     const data = await api("/api/fork-messages", { key: state.key });
     state.forkMessages = data.forkMessages || [];
-    renderThread();
   } catch {
-    /* ignore */
+    /* 用旧的 forkMessages 也重绘，保证摘要/按钮状态一致 */
   }
+  renderThread();
 }
 
 async function handleForkAction(act, button) {
@@ -1431,6 +1479,83 @@ async function handleForkAction(act, button) {
   }
 }
 
+/* ---------- 完成通知（默认关） ---------- */
+
+const NOTIFY_KEY = "piwebui.notify";
+
+function readNotifyPref() {
+  try {
+    return localStorage.getItem(NOTIFY_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeNotifyPref(on) {
+  try {
+    localStorage.setItem(NOTIFY_KEY, on ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+async function toggleNotify() {
+  if (readNotifyPref()) {
+    writeNotifyPref(false);
+    toast("已关闭完成通知");
+    return;
+  }
+  if (!("Notification" in window)) {
+    toast("当前浏览器不支持系统通知", "error");
+    return;
+  }
+  // 权限请求必须发生在用户点击的手势里；已经是 denied 就不再反复请求。
+  let permission = Notification.permission;
+  if (permission === "default") {
+    try {
+      permission = await Notification.requestPermission();
+    } catch {
+      permission = "denied";
+    }
+  }
+  if (permission !== "granted") {
+    toast("通知权限被拒绝，请到浏览器设置里允许", "error");
+    return;
+  }
+  writeNotifyPref(true);
+  toast("已开启完成通知");
+}
+
+async function maybeNotifyDone() {
+  if (!readNotifyPref()) return;
+  if (document.visibilityState === "visible" && document.hasFocus()) return;
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const title = "pi 已完成";
+  const body = (state.sessionName || sessionTitle()) + " · 本轮结束";
+  const tag = "pi-" + state.key;
+  try {
+    // 阶段 D 注册 SW 后优先走 SW。这里用 getRegistration 而不是 ready，
+    // 避免尚未注册 SW 时永远等待；SW 版的 notificationclick / clients.matchAll
+    // 聚焦窗口由阶段 D 的 sw.js 实现。
+    const reg = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : null;
+    if (reg && typeof reg.showNotification === "function") {
+      await reg.showNotification(title, { body, tag });
+      return;
+    }
+  } catch {
+    /* 退回普通通知 */
+  }
+  try {
+    const note = new Notification(title, { body, tag });
+    note.onclick = () => {
+      window.focus();
+      note.close();
+    };
+  } catch {
+    /* ignore */
+  }
+}
+
 async function refreshStats() {
   if (!state.key) return;
   try {
@@ -1461,6 +1586,10 @@ function handleEvent(event) {
       state.streaming = true;
       state.liveToolIds = new Set();
       state.activity = "pi 正在工作";
+      // 每轮重新统计「本轮改了什么」。
+      state.turnFiles = new Map();
+      state.turnCommands = 0;
+      state.turnSummary = null;
       updateSendState();
       updateWorking();
       renderSessions();
@@ -1484,13 +1613,20 @@ function handleEvent(event) {
       finishMessage(event.message);
       break;
 
-    case "tool_execution_start":
+    case "tool_execution_start": {
       state.liveToolIds.add(event.toolCallId);
       state.toolLive.set(event.toolCallId, { partial: true, content: [], toolName: event.toolName, startedAt: Date.now() });
+      // 只认 edit / write 的 args.path 与 bash 次数（见 buildTurnSummary 的注释）。
+      const args = event.args || {};
+      if ((event.toolName === "edit" || event.toolName === "write") && args.path) {
+        state.turnFiles.set(args.path, event.toolName);
+      }
+      if (event.toolName === "bash") state.turnCommands += 1;
       state.activity = "运行 " + event.toolName + "…";
       updateToolDom(event.toolCallId);
       updateWorking();
       break;
+    }
 
     case "tool_execution_update":
       state.toolLive.set(event.toolCallId, {
@@ -1513,7 +1649,7 @@ function handleEvent(event) {
       updateWorking();
       break;
 
-    case "agent_settled":
+    case "agent_settled": {
       state.streaming = false;
       state.liveToolIds.clear();
       state.activity = "";
@@ -1524,13 +1660,19 @@ function handleEvent(event) {
       updateWorking();
       updateHeader();
       collapseTools();
+      // 工具卡片收起之后才算本轮摘要；历史回放和主动停止都不补通知。
+      const replayed = state.replaying;
+      const aborted = Boolean(event.aborted);
+      state.turnSummary = buildTurnSummary();
       renderSessions();
       markSeen();
       refreshStats();
       refreshSessions();
-      // 新一轮的用户消息会产生新 entryId，刷新后重绘才能让编辑/重生成按钮可用。
+      // 新一轮的用户消息会产生新 entryId；重绘时一并插入摘要。
       refreshForkMessages();
+      if (!replayed && !aborted) maybeNotifyDone();
       break;
+    }
 
     case "queue_update": {
       const steering = Array.isArray(event.steering) ? event.steering.length : 0;
@@ -2163,6 +2305,7 @@ function openMoreMenu(anchor) {
     { label: "重命名会话", icon: "edit", onClick: () => renameSession() },
     { label: "压缩上下文", icon: "refresh", onClick: () => compactSession() },
     { label: "刷新会话", icon: "refresh", onClick: () => resync() },
+    { label: "完成时通知", icon: "bolt", active: readNotifyPref(), onClick: () => toggleNotify() },
     { sep: true },
     {
       label: "复制会话 ID",

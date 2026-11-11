@@ -888,6 +888,24 @@ html[data-theme="light"] .tok-num { color: #b45309; }
 .working .dots i:nth-child(2) { animation-delay: .12s; }
 .working .dots i:nth-child(3) { animation-delay: .24s; }
 
+/* -------------------------- turn summary -------------------------- */
+
+.turn-summary {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 0 2px 38px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.turn-summary svg { width: 14px; height: 14px; flex: none; color: var(--text-4); }
+.turn-summary code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--bg-elev-2);
+  color: var(--text-2);
+}
+
 .notice {
   display: flex; align-items: center; gap: 8px;
   margin: 6px 0;
