@@ -960,7 +960,7 @@ function assistantNode(message, ctx = {}) {
   const node = document.createElement("div");
   node.className = "msg assistant";
   const blocks = contentBlocks(message);
-  let html = '<div class="avatar">π</div><div class="body">';
+  let html = '<div class="avatar"><img src="logo.svg" alt=""></div><div class="body">';
   for (const block of blocks) html += blockHtml(block, false);
   let footHtml = '<button class="action" type="button" data-act="copy-bot">' + ICON("copy") + "复制</button>";
   if (ctx.regenEntryId) {
@@ -980,7 +980,7 @@ function toolResultNode(message) {
   const node = document.createElement("div");
   node.className = "msg assistant";
   node.innerHTML =
-    '<div class="avatar">π</div><div class="body">' +
+    '<div class="avatar"><img src="logo.svg" alt=""></div><div class="body">' +
     toolCardHtml(call, { content: message.content, isError: message.isError, durationMs: message.durationMs }) +
     "</div>";
   return node;
@@ -1007,7 +1007,7 @@ function messageNode(message, index, ctx = {}) {
   if (message.role === "custom" || message.role === "developer") {
     const node = document.createElement("div");
     node.className = "msg assistant";
-    node.innerHTML = '<div class="avatar">π</div><div class="body"><div class="markdown">' + renderMarkdown(textOf(message)) + "</div></div>";
+    node.innerHTML = '<div class="avatar"><img src="logo.svg" alt=""></div><div class="body"><div class="markdown">' + renderMarkdown(textOf(message)) + "</div></div>";
     return node;
   }
   return null;
@@ -1227,7 +1227,7 @@ function ensureStreamEl() {
   if (state.streamEl) return state.streamEl.querySelector(".stream-body");
   const node = document.createElement("div");
   node.className = "msg assistant streaming";
-  node.innerHTML = '<div class="avatar">π</div><div class="body"><div class="stream-body"></div></div>';
+  node.innerHTML = '<div class="avatar"><img src="logo.svg" alt=""></div><div class="body"><div class="stream-body"></div></div>';
   el.messages.appendChild(node);
   state.streamEl = node;
   return node.querySelector(".stream-body");

@@ -175,15 +175,10 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 
 .brand { display: flex; align-items: center; gap: 8px; text-decoration: none; flex: 1; min-width: 0; }
 .brand-mark {
-  display: grid; place-items: center;
+  flex: none;
   width: 26px; height: 26px;
   border-radius: 8px;
-  background: linear-gradient(160deg, var(--bg-elev-3), var(--bg-elev-2));
-  border: 1px solid var(--border);
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-1);
-  padding-bottom: 2px;
+  display: block;
 }
 .brand-name { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
 .brand-sub {
@@ -580,15 +575,13 @@ html[data-mode="system"] .theme-mode-system { display: block; }
   width: 26px; height: 26px;
   margin-top: 1px;
   border-radius: 8px;
+  overflow: hidden;
+  background: none;
+  border: none;
+  padding: 0;
   display: grid; place-items: center;
-  padding-bottom: 2px;
-  background: var(--bg-elev-2);
-  border: 1px solid var(--border);
-  color: var(--text-2);
-  font-size: 14px;
-  font-weight: 600;
-  user-select: none;
 }
+.msg .avatar img { width: 100%; height: 100%; display: block; }
 .msg .body { flex: 1; min-width: 0; }
 
 .bubble {
