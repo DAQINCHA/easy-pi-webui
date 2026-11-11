@@ -3399,7 +3399,7 @@ function bindEvents() {
       return;
     }
     const meta = event.metaKey || event.ctrlKey;
-    if (meta && event.key.toLowerCase() === "k") {
+    if (meta && event.key.toLowerCase() === "n") {
       event.preventDefault();
       newSession().catch(() => {});
       return;

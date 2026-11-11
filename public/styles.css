@@ -302,7 +302,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   background: var(--accent-pressed);
   box-shadow: var(--shadow-accent);
 }
-.new-chat svg { width: 16px; height: 16px; }
+.new-chat svg { width: 18px; height: 18px; }
 .new-chat span { flex: none; }
 /* 快捷键提示绝对定位：平常藏起来，悬停/聚焦才出现，不影响标题居中 */
 .new-chat kbd {
