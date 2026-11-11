@@ -334,7 +334,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .session-wrap:hover .session-action { opacity: 1; }
 .session-action:hover { background: var(--bg-elev-3); color: var(--text-1); }
 .session-action.pin { right: 28px; }
+.session-action.pin svg { transform: rotate(45deg); }
 .session-action.pin.on { color: var(--text-2); }
+.session-action.pin.on svg { fill: currentColor; }
 .session-wrap.archived .session-item { opacity: .6; }
 .session-wrap.archived .session-item:hover,
 .session-wrap.archived .session-item.active { opacity: 1; }
