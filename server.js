@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { accessSync, constants as fsConstants, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { execFileSync, spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +27,8 @@ function readFlags(argv) {
 }
 
 const flags = readFlags(process.argv.slice(2));
-const WORKSPACE = resolve(flags.workspace || process.env.PI_WORKSPACE || process.cwd());
+const INITIAL_WORKSPACE = resolve(flags.workspace || process.env.PI_WORKSPACE || process.cwd());
+let workspace = INITIAL_WORKSPACE;
 const PORT = Number(flags.port || process.env.PORT || process.env.PI_WEBUI_PORT || 30142);
 const HOST = flags.host || process.env.HOST || "127.0.0.1";
 
@@ -90,7 +92,7 @@ function getSessions() {
   const now = Date.now();
   if (now - sessionCache.at < 2500) return sessionCache.list;
   const archive = readArchive();
-  const list = listSessions(WORKSPACE).map((session) => ({
+  const list = listSessions(workspace).map((session) => ({
     ...session,
     archived: Boolean(archive[session.file]),
   }));
@@ -208,7 +210,7 @@ function cleanTitle(raw) {
   return chars.length > 24 ? chars.slice(0, 24).join("") : title;
 }
 
-function generateTitle(userText, assistantText) {
+function generateTitle(userText, assistantText, cwd = workspace) {
   return new Promise((resolveTitle) => {
     const prompt = [
       "给下面这段对话起一个简短标题。",
@@ -231,7 +233,7 @@ function generateTitle(userText, assistantText) {
     let child;
     try {
       child = spawn(process.env.PI_BIN || "pi", args, {
-        cwd: WORKSPACE,
+        cwd,
         env: buildEnv(),
         stdio: ["ignore", "pipe", "ignore"],
       });
@@ -287,7 +289,7 @@ async function maybeAutoName(bridge) {
     const assistantText = assistant ? messageText(assistant) : "";
     if (!userText && !assistantText.trim()) return;
 
-    const title = await generateTitle(userText || "（用户发来一张图片）", assistantText);
+    const title = await generateTitle(userText || "（用户发来一张图片）", assistantText, bridge.cwd);
     if (!title) return;
 
     // 生成期间用户可能自己改了名，再确认一次
@@ -316,8 +318,8 @@ async function snapshot(bridge) {
 
   return {
     key: bridge.key,
-    workspace: WORKSPACE,
-    sessionsDir: sessionsDir(WORKSPACE),
+    workspace,
+    sessionsDir: sessionsDir(workspace),
     sessionFile: bridge.sessionFile,
     state: state.data || {},
     messages: messages.data?.messages || [],
@@ -337,7 +339,7 @@ async function openBridge(sessionFile) {
     }
   }
 
-  const bridge = new PiBridge({ cwd: WORKSPACE, sessionFile: sessionFile || null });
+  const bridge = new PiBridge({ cwd: workspace, sessionFile: sessionFile || null });
   wire(bridge);
   bridge.start();
 
@@ -406,8 +408,8 @@ async function handleApi(req, res, url) {
 
   if (req.method === "GET" && path === "/api/bootstrap") {
     return json(res, 200, {
-      workspace: WORKSPACE,
-      sessionsDir: sessionsDir(WORKSPACE),
+      workspace,
+      sessionsDir: sessionsDir(workspace),
       sessionRoot: sessionRoot(),
       piVersion: piVersionString(),
       sessions: getSessions(),
@@ -458,8 +460,36 @@ async function handleApi(req, res, url) {
 
   const body = await readBody(req);
 
+  if (path === "/api/workspace") {
+    const raw = String(body.path || "").trim();
+    if (!raw) return json(res, 400, { error: "请输入目录路径" });
+    const expanded = raw.startsWith("~") ? join(homedir(), raw.slice(1)) : raw;
+    const next = resolve(expanded);
+    let stat;
+    try {
+      stat = statSync(next);
+    } catch {
+      return json(res, 400, { error: "目录不存在：" + next });
+    }
+    if (!stat.isDirectory()) return json(res, 400, { error: "这不是目录：" + next });
+    try {
+      accessSync(next, fsConstants.R_OK | fsConstants.X_OK);
+    } catch {
+      return json(res, 400, { error: "没有权限访问：" + next });
+    }
+    workspace = next;
+    sessionCache.at = 0;
+    log("workspace switched", workspace);
+    return json(res, 200, {
+      workspace,
+      sessionsDir: sessionsDir(workspace),
+      sessions: getSessions(),
+      piVersion: piVersionString(),
+    });
+  }
+
   if (path === "/api/archive") {
-    if (!isSessionFile(body.file)) return json(res, 400, { error: "invalid session file" });
+    if (!isSessionFile(body.file, workspace)) return json(res, 400, { error: "invalid session file" });
     const target = resolve(body.file);
     const archive = readArchive();
     if (body.archived) archive[target] = new Date().toISOString();
@@ -470,7 +500,7 @@ async function handleApi(req, res, url) {
   }
 
   if (path === "/api/session/delete") {
-    if (!isSessionFile(body.file)) return json(res, 400, { error: "invalid session file" });
+    if (!isSessionFile(body.file, workspace)) return json(res, 400, { error: "invalid session file" });
     const target = resolve(body.file);
     const archive = readArchive();
     if (archive[target]) {
@@ -503,7 +533,7 @@ async function handleApi(req, res, url) {
   }
 
   if (path === "/api/session/open") {
-    if (!isSessionFile(body.file)) return json(res, 400, { error: "invalid session file" });
+    if (!isSessionFile(body.file, workspace)) return json(res, 400, { error: "invalid session file" });
     const bridge = await openBridge(resolve(body.file));
     return json(res, 200, await snapshot(bridge));
   }
@@ -586,7 +616,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   log("listening on http://" + HOST + ":" + PORT);
-  log("workspace", WORKSPACE);
+  log("workspace", workspace);
   log("pi", piVersionString());
 });
 

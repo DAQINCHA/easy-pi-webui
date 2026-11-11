@@ -294,8 +294,163 @@ function renderSessions() {
 
 function updateWorkspace() {
   if (!state.workspace) return;
-  el.workspaceName.textContent = basename(state.workspace);
-  el.workspaceChip.title = state.workspace;
+  el.workspaceName.textContent = basename(state.workspace) || state.workspace;
+  el.workspaceChip.title = "切换工作区 · " + state.workspace;
+}
+
+const WORKSPACE_RECENT_KEY = "piwebui.workspaces";
+
+function readRecentWorkspaces() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(WORKSPACE_RECENT_KEY) || "[]");
+    return Array.isArray(raw) ? raw.filter((item) => typeof item === "string").slice(0, 8) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberWorkspace(path) {
+  const list = [path, ...readRecentWorkspaces().filter((item) => item !== path)].slice(0, 8);
+  try {
+    localStorage.setItem(WORKSPACE_RECENT_KEY, JSON.stringify(list));
+  } catch {
+    /* ignore */
+  }
+}
+
+function openWorkspaceModal() {
+  const current = state.workspace || "";
+  const recent = readRecentWorkspaces().filter((item) => item !== current);
+  const recentHtml = recent.length
+    ? '<div class="field-label recent-label">最近使用</div><div class="recent-list">' +
+      recent
+        .map(
+          (item) =>
+            '<button class="recent-item" type="button" data-recent="' + escapeHtml(item) + '">' +
+            escapeHtml(item) +
+            "</button>",
+        )
+        .join("") +
+      "</div>"
+    : "";
+  const hint = state.streaming
+    ? "切换后 pi 会在新目录里执行命令、读写文件；当前会话还在运行，会在后台继续。"
+    : "切换后 pi 会在新目录里执行命令、读写文件；旧目录的会话不会丢。";
+  const body =
+    '<p class="modal-hint">' + hint + "</p>" +
+    '<label class="field-label" for="workspacePath">目录路径</label>' +
+    '<input class="field" id="workspacePath" spellcheck="false" autocomplete="off" value="' + escapeHtml(current) + '">' +
+    '<div class="modal-error" id="workspaceError" hidden></div>' +
+    recentHtml;
+
+  const dialog = openModal({
+    title: "切换工作区",
+    body,
+    actions: [
+      { label: "取消" },
+      {
+        label: state.streaming ? "仍然切换" : "切换",
+        kind: "primary",
+        onClick: () => {
+          submitWorkspace(dialog);
+          return false;
+        },
+      },
+    ],
+  });
+
+  const input = dialog.card.querySelector("#workspacePath");
+  for (const button of dialog.card.querySelectorAll("[data-recent]")) {
+    button.addEventListener("click", () => {
+      input.value = button.getAttribute("data-recent");
+      input.focus();
+    });
+  }
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submitWorkspace(dialog);
+    }
+  });
+  input.focus();
+  input.select();
+}
+
+async function submitWorkspace(dialog) {
+  const card = dialog.card;
+  const input = card.querySelector("#workspacePath");
+  const error = card.querySelector("#workspaceError");
+  const button = card.querySelector(".modal-foot .btn.primary");
+  const path = input.value.trim();
+  if (!path) {
+    error.hidden = false;
+    error.textContent = "请输入目录路径";
+    return;
+  }
+
+  button.disabled = true;
+  const label = button.textContent;
+  button.textContent = "切换中…";
+  try {
+    const data = await api("/api/workspace", { path });
+    rememberWorkspace(data.workspace);
+    dialog.close();
+    await resetToWorkspace(data);
+    toast("已切换到 " + (basename(data.workspace) || data.workspace));
+  } catch (err) {
+    error.hidden = false;
+    error.textContent = err.message;
+    button.disabled = false;
+    button.textContent = label;
+  }
+}
+
+async function resetToWorkspace(data) {
+  if (state.es) {
+    state.es.close();
+    state.es = null;
+  }
+  state.key = null;
+  state.file = null;
+  state.workspace = data.workspace || state.workspace;
+  state.piVersion = data.piVersion || state.piVersion;
+  state.messages = [];
+  state.models = [];
+  state.commands = [];
+  state.thinkingLevels = ["off"];
+  state.model = null;
+  state.thinkingLevel = "off";
+  state.sessionName = "";
+  state.stats = {};
+  state.streaming = false;
+  state.queue = 0;
+  state.attachments = [];
+  state.live = null;
+  state.streamEl = null;
+  state.optimisticEl = null;
+  state.toolResults.clear();
+  state.toolLive.clear();
+  state.toolOpen.clear();
+  state.liveToolIds.clear();
+
+  state.sessions = data.sessions || [];
+  renderAttachments();
+  renderThread();
+  renderSessions();
+  updateWorkspace();
+  updateChips();
+  updateStats();
+  updateSendState();
+  updateWorking();
+  updateHeader();
+  el.queuePill.hidden = true;
+  el.emptySub.textContent = "pi 会在 " + state.workspace + " 里读写文件、运行命令。";
+
+  try {
+    await newSession();
+  } catch (error) {
+    toast("已切换目录，但新建会话失败：" + error.message, "error");
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -2105,6 +2260,7 @@ function bindEvents() {
 
   el.themeBtn.addEventListener("click", () => openThemeMenu(el.themeBtn));
   el.moreBtn.addEventListener("click", () => openMoreMenu(el.moreBtn));
+  el.workspaceChip.addEventListener("click", openWorkspaceModal);
   el.modelChip.addEventListener("click", () => openModelMenu(el.modelChip));
   el.thinkChip.addEventListener("click", () => openThinkMenu(el.thinkChip));
   el.ctxChip.addEventListener("click", () => openContextMenu(el.ctxChip));
@@ -2331,6 +2487,7 @@ async function boot() {
     state.workspace = bootstrap.workspace;
     state.piVersion = bootstrap.piVersion || "";
     state.sessions = bootstrap.sessions || [];
+    rememberWorkspace(bootstrap.workspace);
     updateWorkspace();
     el.emptySub.textContent = "pi 会在 " + bootstrap.workspace + " 里读写文件、运行命令。";
     renderSessions();
