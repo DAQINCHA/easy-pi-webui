@@ -430,7 +430,7 @@ function openWorkspacePicker() {
   input.focus();
 }
 
-const PICKER_LABEL = '<svg><use href="#i-folder"/></svg><span>打开工作区</span>';
+const PICKER_LABEL = '<svg><use href="#i-folder"/></svg><span>打开工作区...</span>';
 const WORKSPACE_RECENT_KEY = "piwebui.workspaces";
 
 function readRecentWorkspaces() {

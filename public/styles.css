@@ -1270,12 +1270,12 @@ textarea.field { height: auto; min-height: 110px; padding: 9px 11px; resize: ver
   height: 38px;
   margin-bottom: 14px;
   border-radius: 9px;
-  border: 1px solid var(--border);
-  background: var(--bg-elev-2);
-  color: var(--text-1);
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--accent-fg);
   font-size: 13px;
 }
-.picker-btn:hover { background: var(--bg-elev-3); border-color: var(--border-strong); }
+.picker-btn:hover { opacity: .9; }
 .picker-btn:disabled { opacity: .55; pointer-events: none; }
 .picker-btn svg { width: 15px; height: 15px; }
 
