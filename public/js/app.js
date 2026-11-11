@@ -77,7 +77,6 @@ const state = {
   optimisticEl: null,
   toolResults: new Map(),
   toolLive: new Map(),
-  liveToolIds: new Set(),
   toolOpen: new Map(),
   openThink: false,
   attachments: [],
@@ -595,7 +594,6 @@ async function resetToWorkspace(data) {
   state.toolResults.clear();
   state.toolLive.clear();
   state.toolOpen.clear();
-  state.liveToolIds.clear();
 
   state.sessions = data.sessions || [];
   renderAttachments();
@@ -785,14 +783,9 @@ function toolMeta(call) {
   return { icon: "bolt", title: name, arg: "" };
 }
 
-function defaultToolOpen(call) {
-  // 只展开本轮正在执行的工具；最终答案出来后由 collapseTools 收起
-  return state.liveToolIds.has(call.id);
-}
-
-function isToolOpen(call, result) {
-  if (state.toolOpen.has(call.id)) return state.toolOpen.get(call.id);
-  return defaultToolOpen(call, result);
+// 卡片一律默认折叠，只留一行简略动态（标题 + 参数 + 状态）；是否展开只由用户点击决定。
+function isToolOpen(call) {
+  return state.toolOpen.get(call.id) || false;
 }
 
 function diffHtml(args) {
@@ -1374,7 +1367,6 @@ function applySnapshot(snapshot) {
   state.toolResults.clear();
   state.toolLive.clear();
   state.toolOpen.clear();
-  state.liveToolIds.clear();
   if (switched) {
     state.attachments = [];
     renderAttachments();
@@ -1706,7 +1698,6 @@ function handleEvent(event) {
   switch (event.type) {
     case "agent_start":
       state.streaming = true;
-      state.liveToolIds = new Set();
       state.activity = "pi 正在工作";
       // 每轮重新统计「本轮改了什么」。
       state.turnFiles = new Map();
@@ -1736,7 +1727,6 @@ function handleEvent(event) {
       break;
 
     case "tool_execution_start": {
-      state.liveToolIds.add(event.toolCallId);
       state.toolLive.set(event.toolCallId, { partial: true, content: [], toolName: event.toolName, startedAt: Date.now() });
       // 只认 edit / write 的 args.path（见 buildTurnSummary 的注释）。
       const args = event.args || {};
@@ -1772,7 +1762,6 @@ function handleEvent(event) {
 
     case "agent_settled": {
       state.streaming = false;
-      state.liveToolIds.clear();
       state.activity = "";
       state.queue = 0;
       el.queuePill.hidden = true;
@@ -1882,7 +1871,6 @@ function applyLiveUpdate(update) {
       break;
     case "toolcall_start":
       blocks[index] = { type: "toolCall", id: update.id, name: update.toolName, argsJson: "", arguments: null };
-      state.liveToolIds.add(update.id);
       state.activity = "调用 " + update.toolName + "…";
       break;
     case "toolcall_delta":
@@ -1944,13 +1932,17 @@ function finishMessage(message) {
 }
 
 function collapseTools() {
-  // 最终答案出来后，本轮和之前的工具卡片统一收起；用户之后仍可再点开
+  // 卡片始终折叠是常态：把本轮和之前的工具卡、思考卡统一收起；用户之后仍可再点开
   for (const card of el.messages.querySelectorAll(".tool")) {
     card.classList.remove("open");
     const body = card.querySelector(".tool-body");
     if (body) body.hidden = true;
   }
   state.toolOpen.clear();
+  for (const card of el.messages.querySelectorAll("details.think[open]")) {
+    card.removeAttribute("open");
+  }
+  state.openThink = false;
 }
 
 function updateToolDom(toolCallId) {
