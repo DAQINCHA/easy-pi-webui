@@ -300,7 +300,7 @@
 }
 ```
 
-图标从 `public/logo.svg` 生成（macOS 可试 `sips -s format png --resampleHeightWidth 512 512 logo.svg --out icon-512.png`；不行就用任何本地工具生成，不要把 SVG 直接当 512 PNG）。深色底、π 标识，留一点内边距。
+PWA 图标从 `public/icons/logo-pwa.svg` 生成（macOS 可试 `sips -s format png --resampleHeightWidth 512 512 icons/logo-pwa.svg --out icons/icon-512.png`；不行就用任何本地工具生成，不要把 SVG 直接当 512 PNG）。该源是**满幅不透明**的深色方块（深色铺满整张画布、无透明区域），因为 Safari 给 maskable 图标做遮罩时会把透明区域填成白色——一旦图标四周留了透明边，就会出现一圈白边。`public/logo.svg` 是带圆角透明边的版本，只给页面内嵌的 `<img>` 用，不要拿它生成 PWA 安装图标。
 
 ### Service Worker 策略（重点：不要造成“改了代码看不到”）
 
