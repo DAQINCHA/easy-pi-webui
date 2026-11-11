@@ -8,7 +8,7 @@
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --ease: cubic-bezier(.22, 1, .36, 1);
   --ease-spring: cubic-bezier(.34, 1.36, .64, 1);
-  --sidebar-w: 268px;
+  --sidebar-w: 248px;
   --thread-max: 812px;
   --radius: 12px;
   --radius-lg: 18px;
@@ -271,15 +271,6 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   display: block;
 }
 .brand-name { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
-.brand-sub {
-  font-size: 10px;
-  color: var(--text-4);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 1px 4px;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-}
 
 .new-chat {
   display: flex;
@@ -289,21 +280,21 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   height: 36px;
   padding: 0 10px;
   border-radius: 10px;
-  background: var(--bg-elev-2);
-  border: 1px solid var(--border-soft);
-  color: var(--text-1);
+  background: var(--accent);
+  border: 1px solid transparent;
+  color: var(--accent-fg);
   font-size: 13.5px;
   font-weight: 500;
   transition: background .18s var(--ease), border-color .18s var(--ease);
 }
-.new-chat:hover { background: var(--bg-elev-3); border-color: var(--border); }
-.new-chat:hover kbd { color: var(--text-3); }
+.new-chat:hover { background: var(--accent-hover); border-color: transparent; }
+.new-chat:active { background: var(--accent-pressed); }
 .new-chat svg { width: 16px; height: 16px; }
 .new-chat span { flex: 1; text-align: left; }
 .new-chat kbd {
   font-family: var(--font-ui);
   font-size: 11px;
-  color: var(--text-4);
+  color: color-mix(in srgb, var(--accent-fg) 86%, var(--accent));
   background: transparent;
   border: 0;
 }
@@ -335,8 +326,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 2px 2px 8px;
-  margin-top: 2px;
+  /* 抵消侧栏左右内边距：滚动条贴到侧栏右缘，列表内容宽度才能和「新对话」按钮对齐 */
+  margin: 2px -10px 0;
+  padding: 2px 0 8px 10px;
   scrollbar-gutter: stable;
 }
 
@@ -360,6 +352,18 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 }
 .session-item:hover { background: var(--bg-hover); }
 .session-item.active { background: var(--bg-selected); }
+/* 选中条只在左缘用一截蓝色，其余保持中性 */
+.session-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--accent);
+}
 .session-item .row { display: flex; align-items: center; gap: 6px; }
 .session-item .t {
   flex: 1;
@@ -406,8 +410,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .session-wrap { position: relative; }
 .session-action {
   position: absolute;
-  top: 7px;
+  top: 50%;
   right: 4px;
+  transform: translateY(-50%);
   width: 24px;
   height: 24px;
   display: grid;
@@ -1060,14 +1065,14 @@ html[data-mode="system"] .theme-mode-system { display: block; }
 }
 .composer:focus-within {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  box-shadow: 0 0 0 3px var(--glow), var(--shadow-composer);
+  box-shadow: 0 0 0 2px var(--glow), var(--shadow-composer);
 }
 .composer.dragover { border-color: color-mix(in srgb, var(--blue) 55%, var(--border)); }
 
 #input {
   display: block;
   width: 100%;
-  max-height: 220px;
+  max-height: min(220px, 36dvh);
   min-height: 28px;
   padding: 4px 6px 6px;
   background: none;

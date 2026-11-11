@@ -627,7 +627,9 @@ function updateHeader() {
 }
 
 function updateChips() {
-  el.modelChipText.textContent = state.model ? state.model.name || state.model.id : "模型";
+  const modelName = state.model ? state.model.name || state.model.id : "模型";
+  el.modelChipText.textContent = modelName;
+  el.modelChip.title = state.model ? modelName + " · 点击切换模型" : "选择模型";
   el.thinkChipText.textContent = "思考 " + (state.thinkingLevel || "off");
   el.thinkChip.hidden = !state.model || !state.model.reasoning;
   updateHeader();
@@ -691,7 +693,7 @@ function updateSendState() {
   el.sendBtn.disabled = !stop && !hasText;
   setHidden(el.sendBtn.querySelector(".send-icon"), stop);
   setHidden(el.sendBtn.querySelector(".stop-icon"), !stop);
-  el.sendBtn.title = stop ? "停止（Esc）" : "发送";
+  el.sendBtn.title = stop ? "停止（Esc）" : hasText ? "发送" : "输入内容后发送";
   el.hintText.textContent = stop
     ? "Enter 发送 = 插入当前任务 · Shift + Enter 换行"
     : "Enter 发送 · Shift + Enter 换行";
@@ -1969,9 +1971,16 @@ function findToolCall(id) {
 /* composer                                                            */
 /* ------------------------------------------------------------------ */
 
+// 输入框最高能长到视口的三分之一多一点：软键盘弹出或横屏时，
+// 发送按钮和最后一行输入不能一起被挤出屏幕。
+function maxInputHeight() {
+  const viewport = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  return Math.max(96, Math.min(220, Math.round(viewport * 0.36)));
+}
+
 function autosize() {
   el.input.style.height = "auto";
-  el.input.style.height = Math.min(el.input.scrollHeight, 220) + "px";
+  el.input.style.height = Math.min(el.input.scrollHeight, maxInputHeight()) + "px";
 }
 
 function addOptimisticUser(text, images) {
@@ -2885,9 +2894,9 @@ function initSidebarResizer() {
   });
 
   el.resizer.addEventListener("dblclick", () => {
-    el.app.style.setProperty("--sidebar-w", "268px");
+    el.app.style.setProperty("--sidebar-w", "248px");
     try {
-      localStorage.setItem("piwebui.sidebarWidth", "268");
+      localStorage.setItem("piwebui.sidebarWidth", "248");
     } catch {
       /* ignore */
     }
@@ -2975,7 +2984,8 @@ function bindEvents() {
   });
 
   el.input.addEventListener("keydown", (event) => {
-    if (event.isComposing) return;
+    // IME 组合中一律不当作发送：部分旧版 Safari 只报 keyCode 229 而不给 isComposing
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === "Enter" && !event.shiftKey) {
       if (state.slash && chooseSlash()) {
         event.preventDefault();
@@ -3167,7 +3177,12 @@ function bindEvents() {
   window.addEventListener("resize", () => {
     syncNavToggle();
     renderRail();
+    autosize();
   });
+  // 软键盘弹出会改变 visualViewport 而不是 window 尺寸，跟着收一下输入框。
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", autosize);
+  }
   window.addEventListener("focus", () => markSeen());
   document.addEventListener("visibilitychange", () => {
     if (isViewing()) markSeen();
