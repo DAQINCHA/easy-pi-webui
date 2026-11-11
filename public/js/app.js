@@ -626,19 +626,9 @@ function updateHeader() {
   document.title = title + " · Easy-Pi WebUI";
 }
 
-const THINK_LABEL = {
-  off: "不思考",
-  minimal: "极简",
-  low: "低",
-  medium: "中",
-  high: "高",
-  xhigh: "更高",
-  max: "最高",
-};
-
 function updateChips() {
   el.modelChipText.textContent = state.model ? state.model.name || state.model.id : "模型";
-  el.thinkChipText.textContent = "思考 " + (THINK_LABEL[state.thinkingLevel] || state.thinkingLevel || "关");
+  el.thinkChipText.textContent = "思考 " + (state.thinkingLevel || "off");
   el.thinkChip.hidden = !state.model || !state.model.reasoning;
   updateHeader();
 }
@@ -2397,8 +2387,7 @@ function openThinkMenu(anchor) {
   const items = [{ label: "思考深度", labelOnly: true }];
   for (const level of levels) {
     items.push({
-      label: THINK_LABEL[level] || level,
-      sub: level,
+      label: level,
       active: state.thinkingLevel === level,
       onClick: () => selectThink(level),
     });
