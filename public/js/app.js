@@ -1322,7 +1322,7 @@ function refreshCurrentTurn(options) {
       else el.messages.appendChild(node);
     }
   } else {
-    for (const node of nodes) el.messages.appendChild(node);
+    appendToThread(nodes);
   }
   state.lastTurnNodes = nodes;
   el.empty.hidden = state.messages.length > 0 || state.streaming;
@@ -1555,19 +1555,27 @@ function dropStream() {
   state.live = null;
 }
 
+// 工作提示始终占最后一行：新内容一律插到它前面，而不是追加到它后面。
+function appendToThread(nodes) {
+  const working = el.messages.querySelector(".working");
+  const anchor = working && working.parentNode === el.messages ? working : null;
+  for (const node of nodes) {
+    if (anchor) el.messages.insertBefore(node, anchor);
+    else el.messages.appendChild(node);
+  }
+}
+
+// 整轮工作期间一直显示，不再因为「有流式内容」就隐掉又冒出来。
 function updateWorking() {
   const existing = el.messages.querySelector(".working");
   if (!state.streaming) {
     if (existing) existing.remove();
     return;
   }
-  if (state.live && state.live.blocks.some((block) => block && (block.text || block.thinking || block.toolCall))) {
-    if (existing) existing.remove();
-    return;
-  }
   const label = state.activity || "pi 正在工作";
   if (existing) {
     existing.querySelector(".working-label").textContent = label;
+    if (el.messages.lastElementChild !== existing) el.messages.appendChild(existing);
     return;
   }
   const node = document.createElement("div");
@@ -1581,7 +1589,7 @@ function addNotice(text) {
   const node = document.createElement("div");
   node.className = "notice";
   node.innerHTML = ICON("refresh") + "<span>" + escapeHtml(text) + "</span>";
-  el.messages.appendChild(node);
+  appendToThread([node]);
   scrollBottom();
   return node;
 }
@@ -2157,7 +2165,7 @@ function finishMessage(message) {
     const turns = buildTurns(state.messages);
     const turn = turns[turns.length - 1];
     const nodes = turn ? turnNodes(turn, turnContext(turn)) : [];
-    for (const node of nodes) el.messages.appendChild(node);
+    appendToThread(nodes);
     state.lastTurnNodes = nodes;
     el.empty.hidden = true;
     renderRail();
