@@ -486,7 +486,7 @@ function openWorkspaceMenu() {
   const html =
     '<div class="ws-menu-head">' +
     '<div class="ws-menu-name">' + escapeHtml(basename(current) || current) + "</div>" +
-    '<div class="ws-menu-path">' + escapeHtml(current) + "</div>" +
+    '<div class="ws-menu-path" title="' + escapeHtml(current) + '">' + escapeHtml(current) + "</div>" +
     "</div>" +
     '<button class="picker-btn" type="button" id="workspacePick">' + PICKER_LABEL + "</button>" +
     '<div class="ws-menu-hint">' +
@@ -494,7 +494,13 @@ function openWorkspaceMenu() {
     "</div>" +
     recentHtml;
 
-  openMenu(el.workspaceChip, [], { html, align: "left", preferUp: true, className: "workspace-menu" });
+  openMenu(el.workspaceChip, [], {
+    html,
+    align: "left",
+    preferUp: true,
+    className: "workspace-menu",
+    matchAnchorWidth: true,
+  });
 
   const pick = el.menuLayer.querySelector("#workspacePick");
   if (pick) pick.addEventListener("click", () => pickWorkspace(pick));
@@ -2457,6 +2463,8 @@ function openMenu(anchor, items, options) {
   el.menuLayer.appendChild(menu);
 
   const rect = anchor.getBoundingClientRect();
+  // 面板宽度跟触发它的按钮一致（侧栏宽度变了会跟着变）。
+  if (opts.matchAnchorWidth) menu.style.width = Math.round(rect.width) + "px";
   const width = menu.offsetWidth;
   const height = menu.offsetHeight;
   let left = opts.align === "right" ? rect.right - width : rect.left;

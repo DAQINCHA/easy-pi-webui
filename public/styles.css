@@ -508,7 +508,6 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   align-items: center;
   gap: 6px;
   padding: 10px 2px 0;
-  border-top: 1px solid var(--border-soft);
   margin-top: 2px;
 }
 .workspace {
@@ -1453,7 +1452,12 @@ textarea.field { height: auto; min-height: 110px; padding: 9px 11px; resize: ver
 .picker-btn:disabled { background: var(--bg-elev-3); color: var(--text-disabled); pointer-events: none; }
 .picker-btn svg { width: 15px; height: 15px; }
 
-.workspace-menu { width: 320px; max-width: calc(100vw - 16px); }
+/* 宽度由 JS 跟侧栏底部的工作区按钮对齐，这里只给一个兼底值 */
+.workspace-menu {
+  width: 320px;
+  min-width: 0;
+  max-width: calc(100vw - 16px);
+}
 .ws-menu-head { padding: 8px 9px 6px; }
 .ws-menu-name { font-size: 13px; font-weight: 600; color: var(--text-1); }
 .ws-menu-path {
@@ -1462,7 +1466,10 @@ textarea.field { height: auto; min-height: 110px; padding: 9px 11px; resize: ver
   font-size: 10.5px;
   line-height: 1.5;
   color: var(--text-4);
-  word-break: break-all;
+  /* 路径始终只占一行，太长就省略，完整路径看 title */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ws-menu-hint { padding: 0 9px 8px; font-size: 11px; color: var(--text-4); }
 .ws-menu-label {
