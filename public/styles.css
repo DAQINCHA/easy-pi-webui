@@ -1216,6 +1216,7 @@ html[data-mode="system"] .theme-mode-system { display: block; }
 .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip.ctx { gap: 6px; font-variant-numeric: tabular-nums; }
 .chip.ctx.ctx-pending { color: var(--text-disabled); }
+.chip.tok { font-variant-numeric: tabular-nums; }
 
 .ctx-ring {
   display: block;
@@ -1685,6 +1686,7 @@ body.resizing .sidebar { transition: none; }
   #thinkChip { max-width: 88px; }
   .chip.ctx { padding: 0 5px; }
   #ctxText { display: none; }
+  #tokChipText { display: none; }
 }
 
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }

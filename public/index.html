@@ -56,6 +56,7 @@
     <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></symbol>
     <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></symbol>
     <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0v4.5l1.8 2.7a.8.8 0 0 1-.7 1.3H4.9a.8.8 0 0 1-.7-1.3L6 13.5V9z"/><path d="M9.5 18.5a2.5 2.5 0 0 0 5 0"/></symbol>
+    <symbol id="i-tokens" viewBox="0 0 24 24"><ellipse cx="12" cy="6.5" rx="7.5" ry="3"/><path d="M4.5 6.5v5c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3v-5"/><path d="M4.5 11.5v5c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3v-5"/></symbol>
     <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></symbol>
     <symbol id="i-archive" viewBox="0 0 24 24"><path d="M4 8h16v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8z"/><path d="M3 3h18v5H3z"/><path d="M10 13h4"/></symbol>
     <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 10.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.3V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.7a2 2 0 0 0-1.1-1.8l-1.8-.9a2 2 0 0 1-1.1-1.8V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></symbol>
@@ -161,6 +162,10 @@
             <button class="chip" id="thinkChip">
               <svg><use href="#i-bolt"/></svg>
               <span id="thinkChipText">思考</span>
+            </button>
+            <button class="chip tok" id="tokChip" hidden>
+              <svg><use href="#i-tokens"/></svg>
+              <span id="tokChipText">缓存</span>
             </button>
             <button class="chip ctx" id="ctxChip" hidden>
               <span class="ctx-ring" id="ctxRing" aria-hidden="true">

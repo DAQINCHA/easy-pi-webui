@@ -44,6 +44,8 @@ const el = {
   queueCount: $("queueCount"),
   hintText: $("hintText"),
   statusHint: $("statusHint"),
+  tokChip: $("tokChip"),
+  tokChipText: $("tokChipText"),
   menuLayer: $("menuLayer"),
   modalLayer: $("modalLayer"),
   toasts: $("toasts"),
@@ -162,10 +164,9 @@ function fmtTokens(value) {
   return String(n);
 }
 
-function fmtCost(value) {
-  const n = Number(value) || 0;
-  if (!n) return "$0";
-  return "$" + (n < 0.01 ? n.toFixed(4) : n.toFixed(2));
+/** 精确到个位、带千分位：统计面板里看真实数字，不做压缩。 */
+function fmtExact(value) {
+  return (Number(value) || 0).toLocaleString("en-US") + " tok";
 }
 
 function fmtDuration(ms) {
@@ -639,6 +640,7 @@ function updateChips() {
 }
 
 function updateStats() {
+  updateTokenChip();
   const usage = state.stats && state.stats.contextUsage;
   if (!usage || !usage.contextWindow) {
     el.ctxChip.hidden = true;
@@ -658,9 +660,9 @@ function updateStats() {
   }
   el.ctxChip.classList.remove("ctx-pending");
   const percent = Math.max(0, Math.min(100, Number(usage.percent) || 0));
-  const label = percent.toFixed(1) + "%";
-  // 1M 上下文下线性刻度几乎看不到变化，用平方根让小幅增长也有可见的弧
-  const fraction = percent <= 0 ? 0 : Math.max(Math.sqrt(percent / 100), 0.05);
+  const label = Math.round(percent) + "%";
+  // 圆环按真实占比走：之前用平方根放大，30% 会画成一半，对不上数字
+  const fraction = percent / 100;
   el.ctxChip.hidden = false;
   el.ctxText.textContent = label;
   el.ctxArc.style.strokeDasharray = circumference.toFixed(2);
@@ -668,6 +670,48 @@ function updateStats() {
   el.ctxChip.title =
     "上下文 " + label + " · " + fmtTokens(usage.tokens) + " / " + fmtTokens(usage.contextWindow) +
     " · 累计 " + fmtTokens(state.stats.tokens ? state.stats.tokens.total : 0) + " tokens";
+}
+
+// 缓存命中率：做成输入框里的一颗胶囊，点开看 Token 用量明细。
+function tokenUsage() {
+  const tokens = (state.stats && state.stats.tokens) || {};
+  const total = Number(tokens.total) || 0;
+  const fresh = Number(tokens.input) || 0;
+  const cached = Number(tokens.cacheRead) || 0;
+  const output = Number(tokens.output) || 0;
+  // 命中率 = 缓存读取 / 全部输入（未缓存输入 + 缓存读取）
+  const hit = fresh + cached > 0 ? (cached / (fresh + cached)) * 100 : 0;
+  // 保留一位小数：99.93% 直接取整会显示成 100%，看起来像算错了
+  const hitLabel = (Math.round(hit * 10) / 10).toFixed(1).replace(/\.0$/, "") + "%";
+  return { total, fresh, cached, output, hitLabel };
+}
+
+function updateTokenChip() {
+  if (!el.tokChip) return;
+  const usage = tokenUsage();
+  if (!usage.total) {
+    el.tokChip.hidden = true;
+    return;
+  }
+  el.tokChip.hidden = false;
+  el.tokChipText.textContent = "缓存 " + usage.hitLabel;
+  el.tokChip.title = "Token 用量 · 缓存命中 " + usage.hitLabel;
+}
+
+function openTokenMenu(anchor) {
+  const usage = tokenUsage();
+  openMenu(
+    anchor,
+    [
+      { label: "缓存情况", labelOnly: true },
+      { info: ["Token 用量", fmtExact(usage.total)] },
+      { info: ["缓存命中", usage.hitLabel] },
+      { info: ["未缓存输入", fmtExact(usage.fresh)] },
+      { info: ["缓存读取", fmtExact(usage.cached)] },
+      { info: ["输出", fmtExact(usage.output)] },
+    ],
+    { align: "left", preferUp: true, above: el.composer },
+  );
 }
 
 function setHidden(node, hidden) {
@@ -2578,8 +2622,8 @@ async function loadThinkingLevels() {
 function openContextMenu(anchor) {
   const stats = state.stats || {};
   const usage = stats.contextUsage || {};
-  const tokens = stats.tokens || {};
-  const percent = usage.percent === null || usage.percent === undefined ? "—" : Number(usage.percent).toFixed(1) + "%";
+  const percent =
+    usage.percent === null || usage.percent === undefined ? "—" : Math.round(Number(usage.percent)) + "%";
   openMenu(
     anchor,
     [
@@ -2589,11 +2633,6 @@ function openContextMenu(anchor) {
       { info: ["用户消息", stats.userMessages || 0] },
       { info: ["助手消息", stats.assistantMessages || 0] },
       { info: ["工具调用", stats.toolCalls || 0] },
-      { info: ["输入 tokens", fmtTokens(tokens.input)] },
-      { info: ["输出 tokens", fmtTokens(tokens.output)] },
-      { info: ["缓存读取", fmtTokens(tokens.cacheRead)] },
-      { info: ["累计 tokens", fmtTokens(tokens.total)] },
-      { info: ["费用", fmtCost(stats.cost)] },
       { sep: true },
       { label: "压缩上下文", icon: "refresh", onClick: () => compactSession() },
     ],
@@ -3168,6 +3207,7 @@ function bindEvents() {
   el.modelChip.addEventListener("click", () => openModelMenu(el.modelChip));
   el.thinkChip.addEventListener("click", () => openThinkMenu(el.thinkChip));
   el.ctxChip.addEventListener("click", () => openContextMenu(el.ctxChip));
+  el.tokChip.addEventListener("click", () => openTokenMenu(el.tokChip));
 
   el.attachBtn.addEventListener("click", () => el.fileInput.click());
   el.fileInput.addEventListener("change", () => {
