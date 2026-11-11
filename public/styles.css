@@ -43,7 +43,7 @@ html[data-theme="dark"] {
 
   /* 交互层 */
   --bg-hover: #ffffff0d;
-  --bg-selected: #2e3a4b;
+  --bg-selected: #232c39;
 
   /* 文字 */
   --text-1: #e9edf3;
@@ -94,6 +94,8 @@ html[data-theme="dark"] {
   --shadow-pop: 0 18px 44px -14px #04070ccc, 0 0 0 1px #ffffff12;
   --shadow-composer: 0 18px 44px -22px #04070cd9, 0 1px 0 #ffffff0f inset;
   --shadow-soft: 0 1px 3px -1px #04070c99;
+  --shadow-accent: 0 2px 6px -1px #04070cb3, 0 8px 22px -6px #82a9e89e;
+  --shadow-accent-strong: 0 4px 10px -2px #04070ccc, 0 14px 32px -8px #82a9e8c4;
   --shadow-raised: 0 12px 30px -16px #04070ccc;
   --shadow-card: 0 18px 42px -22px #04070caa;
   --shadow-modal: 0 32px 80px -20px #04070ce6;
@@ -171,6 +173,8 @@ html[data-theme="light"] {
   --shadow-pop: 0 18px 44px -18px #1b273333, 0 0 0 1px #0f172a14;
   --shadow-composer: 0 14px 34px -20px #1b273326, 0 1px 0 #ffffff inset;
   --shadow-soft: 0 1px 3px -1px #1b273333;
+  --shadow-accent: 0 2px 6px -1px #1b273333, 0 8px 22px -6px #315dca80;
+  --shadow-accent-strong: 0 4px 10px -2px #1b27334d, 0 14px 32px -8px #315dcaa6;
   --shadow-raised: 0 12px 30px -16px #1b273340;
   --shadow-card: 0 18px 42px -22px #1b273333;
   --shadow-modal: 0 32px 80px -20px #1b273340;
@@ -275,29 +279,47 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .new-chat {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  position: relative;
   width: 100%;
-  height: 36px;
-  padding: 0 10px;
+  height: 40px;
+  padding: 0 12px;
   border-radius: 10px;
   background: var(--accent);
   border: 1px solid transparent;
   color: var(--accent-fg);
   font-size: 13.5px;
   font-weight: 500;
-  transition: background .18s var(--ease), border-color .18s var(--ease);
+  box-shadow: var(--shadow-accent);
+  transition: background .18s var(--ease), box-shadow .2s var(--ease);
 }
-.new-chat:hover { background: var(--accent-hover); border-color: transparent; }
-.new-chat:active { background: var(--accent-pressed); }
+.new-chat:hover {
+  background: var(--accent-hover);
+  box-shadow: var(--shadow-accent-strong);
+}
+.new-chat:active {
+  background: var(--accent-pressed);
+  box-shadow: var(--shadow-accent);
+}
 .new-chat svg { width: 16px; height: 16px; }
-.new-chat span { flex: 1; text-align: left; }
+.new-chat span { flex: none; }
+/* 快捷键提示绝对定位：平常藏起来，悬停/聚焦才出现，不影响标题居中 */
 .new-chat kbd {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
   font-family: var(--font-ui);
   font-size: 11px;
   color: color-mix(in srgb, var(--accent-fg) 86%, var(--accent));
   background: transparent;
   border: 0;
+  opacity: 0;
+  transition: opacity .16s var(--ease);
 }
+.new-chat:hover kbd,
+.new-chat:focus-visible kbd { opacity: 1; }
 
 .search {
   display: flex;
@@ -344,7 +366,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   display: block;
   width: 100%;
   text-align: left;
-  padding: 7px 30px 7px 10px;
+  padding: 7px 56px 7px 10px;
   border-radius: 9px;
   margin-bottom: 1px;
   position: relative;
@@ -357,10 +379,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   content: "";
   position: absolute;
   left: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 5px;
+  bottom: 5px;
   width: 2px;
-  height: 16px;
   border-radius: 2px;
   background: var(--accent);
 }
@@ -376,13 +397,19 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   text-overflow: ellipsis;
 }
 .session-item.active .t { color: var(--text-1); font-weight: 500; }
+/* 时间戳固定在右侧那一格，和悬停时出现的按钮共用一个位置，互不挤占。 */
 .session-item .m {
-  margin-top: 2px;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: 52px;
   font-size: 11px;
   color: var(--text-4);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: opacity .15s var(--ease);
 }
 .session-spin {
   width: 11px;
@@ -424,9 +451,15 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   transition: opacity .15s var(--ease), background .15s var(--ease), color .15s var(--ease);
 }
 .session-action svg { width: 14px; height: 14px; }
-.session-wrap:hover .session-action { opacity: 1; }
 .session-action:hover { background: var(--bg-elev-3); color: var(--text-1); }
 .session-action.pin { right: 28px; }
+/* 悬停：露出置顶/归档，时间戳让出同一格 */
+.session-wrap:hover .session-action { opacity: 1; }
+.session-wrap:hover .session-item .m { opacity: 0; }
+/* 正在跑的会话不给操作按钮，时间戳也就保持可见 */
+.session-wrap.running .session-action.pin,
+.session-wrap.running .session-action.archive { opacity: 0; pointer-events: none; }
+.session-wrap.running .session-item .m { opacity: 1; }
 .session-action.pin svg { transform: rotate(45deg); }
 .session-action.pin.on { color: var(--text-2); }
 .session-action.pin.on svg { fill: currentColor; }
@@ -435,7 +468,12 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .session-wrap.archived .session-item.active { opacity: 1; }
 
 @media (hover: none) {
+  /* 触屏没有悬停：操作按钮常显、时间戳让位；正在跑的会话反过来。 */
   .session-action { opacity: 1; }
+  .session-item .m { opacity: 0; }
+  .session-wrap.running .session-action.pin,
+  .session-wrap.running .session-action.archive { opacity: 0; pointer-events: none; }
+  .session-wrap.running .session-item .m { opacity: 1; }
 }
 
 .session-group-label.archived-toggle {

@@ -247,7 +247,7 @@ function sessionItemHtml(session) {
   const label = session.name || session.title;
   const pinned = Boolean(session.pinned) && !session.archived;
   return (
-    '<div class="session-wrap' + (session.archived ? " archived" : "") + (pinned ? " pinned" : "") + '">' +
+    '<div class="session-wrap' + (session.archived ? " archived" : "") + (pinned ? " pinned" : "") + (running ? " running" : "") + '">' +
     '<button class="session-item' + (active ? " active" : "") + '" data-file="' + escapeHtml(session.file) + '">' +
     '<span class="row"><span class="t">' + escapeHtml(label) + "</span>" +
     (running
@@ -268,7 +268,7 @@ function sessionItemHtml(session) {
         '" title="' + (pinned ? "取消置顶" : "置顶会话") + '" aria-label="' + (pinned ? "取消置顶" : "置顶会话") + '">' +
         ICON("pin") +
         "</button>" +
-        '<button class="session-action" type="button" data-archive-file="' + escapeHtml(session.file) + '" title="归档会话" aria-label="归档会话">' +
+        '<button class="session-action archive" type="button" data-archive-file="' + escapeHtml(session.file) + '" title="归档会话" aria-label="归档会话">' +
         ICON("archive") +
         "</button>") +
     "</div>"
