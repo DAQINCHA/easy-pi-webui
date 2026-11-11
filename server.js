@@ -1,5 +1,8 @@
 import { createServer } from "node:http";
-import { accessSync, constants as fsConstants, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  accessSync, chmodSync, constants as fsConstants, mkdirSync, readFileSync,
+  realpathSync, renameSync, statSync, unlinkSync, writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -12,6 +15,63 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(HERE, "public");
 const DATA_DIR = join(HERE, "data");
 const ARCHIVE_FILE = join(DATA_DIR, "archived.json");
+
+// 每台电脑自己的配置，不放 iCloud、不放 ~/.pi，避免污染 pi 的真实设置与凭据。
+const CONFIG_DIR = join(homedir(), ".config", "new-pi-webui");
+const CONFIG_FILE = join(CONFIG_DIR, "settings.json");
+
+function readSettings() {
+  let raw;
+  try {
+    raw = readFileSync(CONFIG_FILE, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return { data: null, error: null };
+    return { data: null, error: error.message };
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("内容不是对象");
+    return { data: parsed, error: null };
+  } catch (error) {
+    return { data: null, error: error.message };
+  }
+}
+
+/** 原子替换；保留未知字段；配置不可读时不覆盖旧文件。 */
+function saveWorkspaceSetting(path) {
+  const current = readSettings();
+  if (current.error) {
+    return { ok: false, error: "本机配置无法读取或解析，已保留原文件：" + current.error };
+  }
+  const next = { ...(current.data || {}), version: 1, workspace: path };
+  const tmp = join(CONFIG_DIR, ".settings-" + process.pid + "-" + Date.now() + ".tmp");
+  try {
+    mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+    writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
+    chmodSync(tmp, 0o600);
+    renameSync(tmp, CONFIG_FILE);
+    return { ok: true, error: null };
+  } catch (error) {
+    try { unlinkSync(tmp); } catch { /* ignore */ }
+    return { ok: false, error: error.message };
+  }
+}
+
+/** 统一绝对化 + 校验 + canonical 路径，供启动和页面切换共用。 */
+function resolveWorkspace(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return { error: "请输入目录路径" };
+  const expanded = text.startsWith("~") ? join(homedir(), text.slice(1)) : text;
+  const absolute = resolve(expanded);
+  try {
+    const stat = statSync(absolute);
+    if (!stat.isDirectory()) return { error: "这不是目录：" + absolute };
+    accessSync(absolute, fsConstants.R_OK | fsConstants.X_OK);
+    return { path: realpathSync(absolute) };
+  } catch (error) {
+    return { error: "目录无法访问：" + absolute + "（" + error.message + "）" };
+  }
+}
 
 function readFlags(argv) {
   const out = {};
@@ -27,17 +87,40 @@ function readFlags(argv) {
 }
 
 const flags = readFlags(process.argv.slice(2));
-const INITIAL_WORKSPACE = resolve(flags.workspace || process.env.PI_WORKSPACE || process.cwd());
-let workspace = INITIAL_WORKSPACE;
 const PORT = Number(flags.port || process.env.PORT || process.env.PI_WEBUI_PORT || 30142);
 const HOST = flags.host || process.env.HOST || "127.0.0.1";
+
+// 优先级：--workspace > PI_WORKSPACE > 本机保存 > 未选择（不再用 process.cwd() 兜底）。
+// 显式覆盖只在当次生效，不回写配置；页面主动切换才保存。
+let workspace = null;
+let startupError = "";
+{
+  const settings = readSettings();
+  const override = flags.workspace || process.env.PI_WORKSPACE || "";
+  if (override) {
+    const source = flags.workspace ? "--workspace" : "PI_WORKSPACE";
+    const checked = resolveWorkspace(override);
+    if (checked.path) workspace = checked.path;
+    else startupError = source + " 指定的工作目录无效：" + checked.error;
+  } else if (settings.error) {
+    startupError = "本机配置读取失败：" + settings.error + "；请在页面重新选择工作目录";
+  } else if (settings.data && settings.data.workspace) {
+    const checked = resolveWorkspace(settings.data.workspace);
+    if (checked.path) workspace = checked.path;
+    else startupError = "保存的工作目录已失效：" + checked.error + "；请在页面重新选择工作目录";
+  }
+  if (startupError) log("ERROR:", startupError);
+}
 
 /** @type {Map<string, PiBridge>} */
 const bridges = new Map();
 const statusClients = new Set();
 const sessionRuntime = new Map();
+/** 自动标题子进程，退出时要一并回收。 */
+const titleJobs = new Set();
 let piVersion = null;
 let sessionCache = { at: 0, list: [] };
+let shuttingDown = false;
 
 const ALLOWED_COMMANDS = new Set([
   "get_state",
@@ -91,6 +174,7 @@ function writeArchive(map) {
 }
 
 function getSessions() {
+  if (!workspace) return [];
   const now = Date.now();
   if (now - sessionCache.at < 2500) return sessionCache.list;
   const archive = readArchive();
@@ -225,7 +309,7 @@ function wire(bridge) {
 
     if (record.type === "agent_settled") {
       const timer = setTimeout(() => {
-        maybeAutoName(bridge).catch(() => {});
+        if (!shuttingDown) maybeAutoName(bridge).catch(() => {});
       }, 500);
       timer.unref?.();
     }
@@ -276,6 +360,10 @@ function cleanTitle(raw) {
 
 function generateTitle(userText, assistantText, cwd = workspace) {
   return new Promise((resolveTitle) => {
+    if (shuttingDown) {
+      resolveTitle("");
+      return;
+    }
     const prompt = [
       "给下面这段对话起一个简短标题。",
       "要求：6 到 12 个汉字（英文不超过 40 个字符），只输出标题本身，不要引号、不要标点结尾、不要解释。",
@@ -306,15 +394,19 @@ function generateTitle(userText, assistantText, cwd = workspace) {
       return;
     }
 
+    const job = { child, timer: null };
+    titleJobs.add(job);
+
     let output = "";
     let settled = false;
     const done = (value) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearTimeout(job.timer);
+      titleJobs.delete(job);
       resolveTitle(value);
     };
-    const timer = setTimeout(() => {
+    job.timer = setTimeout(() => {
       try {
         child.kill("SIGTERM");
       } catch {
@@ -322,7 +414,7 @@ function generateTitle(userText, assistantText, cwd = workspace) {
       }
       done("");
     }, 25000);
-    timer.unref?.();
+    job.timer.unref?.();
 
     child.stdout.on("data", (chunk) => {
       output += chunk.toString("utf8");
@@ -334,7 +426,7 @@ function generateTitle(userText, assistantText, cwd = workspace) {
 }
 
 async function maybeAutoName(bridge) {
-  if (AUTO_TITLE_DISABLED || bridge.autoNameTried) return;
+  if (shuttingDown || AUTO_TITLE_DISABLED || bridge.autoNameTried) return;
   bridge.autoNameTried = true;
   try {
     const first = await command(bridge, { type: "get_state" });
@@ -467,15 +559,33 @@ function routeCommand(name, payload) {
   return out;
 }
 
+// 未选择工作区时只允许「看状态 / 选目录」，其余 session 入口一律拒绝，
+// 保证不会在未选择态 spawn pi 或发起模型请求。
+const SAFE_WITHOUT_WORKSPACE = new Set([
+  "/api/bootstrap",
+  "/api/sessions",
+  "/api/session-events",
+  "/api/workspace",
+  "/api/workspace/pick",
+]);
+
 async function handleApi(req, res, url) {
   const path = url.pathname;
+
+  if (shuttingDown) return json(res, 503, { error: "服务正在退出" });
+  if (!workspace && !SAFE_WITHOUT_WORKSPACE.has(path)) {
+    return json(res, 400, { error: "请先选择工作目录" });
+  }
 
   if (req.method === "GET" && path === "/api/bootstrap") {
     return json(res, 200, {
       workspace,
-      sessionsDir: sessionsDir(workspace),
+      needsWorkspace: !workspace,
+      workspaceError: startupError || null,
+      sessionsDir: workspace ? sessionsDir(workspace) : null,
       sessionRoot: sessionRoot(),
-      piVersion: piVersionString(),
+      // 未选择时不调用 pi --version，避免起任何 pi 子进程。
+      piVersion: workspace ? piVersionString() : null,
       sessions: getSessions(),
     });
   }
@@ -561,27 +671,22 @@ async function handleApi(req, res, url) {
   }
 
   if (path === "/api/workspace") {
-    const raw = String(body.path || "").trim();
-    if (!raw) return json(res, 400, { error: "请输入目录路径" });
-    const expanded = raw.startsWith("~") ? join(homedir(), raw.slice(1)) : raw;
-    const next = resolve(expanded);
-    let stat;
-    try {
-      stat = statSync(next);
-    } catch {
-      return json(res, 400, { error: "目录不存在：" + next });
-    }
-    if (!stat.isDirectory()) return json(res, 400, { error: "这不是目录：" + next });
-    try {
-      accessSync(next, fsConstants.R_OK | fsConstants.X_OK);
-    } catch {
-      return json(res, 400, { error: "没有权限访问：" + next });
-    }
-    workspace = next;
+    const checked = resolveWorkspace(body.path);
+    if (!checked.path) return json(res, 400, { error: checked.error });
+
+    // 页面主动切换才持久化；CLI/环境覆盖只在当次生效，不回写配置。
+    const save = saveWorkspaceSetting(checked.path);
+    workspace = checked.path;
+    startupError = "";
     sessionCache.at = 0;
-    log("workspace switched", workspace);
+    log("workspace switched", workspace, save.ok ? "(saved)" : "(not saved)");
+    // 明确反馈「工作区已切换，但保存失败」，且不记录配置正文。
+    if (!save.ok) log("ERROR: 工作区设置保存失败：", save.error);
     return json(res, 200, {
       workspace,
+      needsWorkspace: false,
+      saved: save.ok,
+      saveError: save.ok ? null : save.error,
       sessionsDir: sessionsDir(workspace),
       sessions: getSessions(),
       piVersion: piVersionString(),
@@ -750,8 +855,8 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   log("listening on http://" + HOST + ":" + PORT);
-  log("workspace", workspace);
-  log("pi", piVersionString());
+  log("workspace", workspace || "(未选择，等待页面选择)");
+  if (workspace) log("pi", piVersionString());
 });
 
 const sweeper = setInterval(() => {
@@ -767,10 +872,77 @@ const sweeper = setInterval(() => {
 }, 60000);
 sweeper.unref?.();
 
-function shutdown() {
-  for (const bridge of bridges.values()) bridge.dispose();
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(0), 3000).unref();
+function childAlive(child) {
+  return Boolean(child && child.exitCode === null && child.signalCode === null);
 }
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+
+/** 只对本应用自己 spawn 的子进程：先给 stdin.end() 的自然退出留时间，再 TERM -> KILL。 */
+function terminateChild(child) {
+  if (!childAlive(child)) return Promise.resolve();
+  return new Promise((resolveTerminate) => {
+    let settled = false;
+    const timers = [];
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      for (const timer of timers) clearTimeout(timer);
+      resolveTerminate();
+    };
+    child.once("exit", done);
+    timers.push(setTimeout(() => {
+      if (childAlive(child)) {
+        try { child.kill("SIGTERM"); } catch { /* ignore */ }
+      }
+    }, 400));
+    timers.push(setTimeout(() => {
+      if (childAlive(child)) {
+        try { child.kill("SIGKILL"); } catch { /* ignore */ }
+      }
+    }, 1600));
+    timers.push(setTimeout(done, 2600));
+  });
+}
+
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log("shutdown", signal || "requested");
+
+  // 有界兜底：即使有子进程不配合也保证退出；正常路径会提前 process.exit。
+  const hardExit = setTimeout(() => process.exit(0), 6000);
+
+  // 1. 先拒绝新任务（handleApi 已有守卫），停止接受新连接。
+  try { server.close(); } catch { /* ignore */ }
+
+  // 2. 清会话回收定时器。
+  clearInterval(sweeper);
+
+  // 3. 关闭 SSE：server.close() 不会主动断长连接，必须逐个 end。
+  for (const res of statusClients) {
+    try { res.end(); } catch { /* ignore */ }
+  }
+  statusClients.clear();
+  for (const bridge of bridges.values()) {
+    for (const res of bridge.clients) {
+      try { res.end(); } catch { /* ignore */ }
+    }
+    bridge.clients.clear();
+  }
+
+  // 4. 清理 pool 中全部 pi、自动标题进程及其计时器。
+  for (const bridge of bridges.values()) bridge.dispose();
+  for (const job of titleJobs) clearTimeout(job.timer);
+
+  const children = [];
+  for (const bridge of bridges.values()) if (bridge.child) children.push(bridge.child);
+  for (const job of titleJobs) if (job.child) children.push(job.child);
+
+  // 5. 确认真实退出后再结束。
+  await Promise.all(children.map(terminateChild));
+  clearTimeout(hardExit);
+  process.exit(0);
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGHUP", () => shutdown("SIGHUP"));

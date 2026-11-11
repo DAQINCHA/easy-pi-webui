@@ -25,6 +25,7 @@ const el = {
   messages: $("messages"),
   empty: $("emptyState"),
   suggestions: $("suggestions"),
+  emptyPickBtn: $("emptyPickBtn"),
   toBottom: $("toBottom"),
   input: $("input"),
   composer: $("composer"),
@@ -52,6 +53,8 @@ const state = {
   key: null,
   file: null,
   workspace: "",
+  needsWorkspace: false,
+  workspaceError: "",
   piVersion: "",
   sessions: [],
   messages: [],
@@ -301,9 +304,108 @@ function renderSessions() {
 }
 
 function updateWorkspace() {
-  if (!state.workspace) return;
+  if (!state.workspace) {
+    el.workspaceName.textContent = "未选择工作目录";
+    el.workspaceChip.title = "点击选择工作目录";
+    return;
+  }
   el.workspaceName.textContent = basename(state.workspace) || state.workspace;
   el.workspaceChip.title = "切换工作区 · " + state.workspace;
+}
+
+// 未选择工作区时：不建会话、不发消息，只留「选目录」这一条路。
+function updateWorkspaceGate() {
+  const heading = el.empty.querySelector("h1");
+  if (heading) heading.textContent = state.needsWorkspace ? "请先选择工作目录" : "今天想做点什么？";
+  el.suggestions.hidden = Boolean(state.needsWorkspace);
+  el.emptyPickBtn.hidden = !state.needsWorkspace;
+  updateSendState();
+  setStatus(state.needsWorkspace ? "请先选择工作目录" : "已连接");
+}
+
+function dismissModal() {
+  el.modalLayer.hidden = true;
+  el.modalLayer.innerHTML = "";
+  el.modalLayer.onclick = null;
+}
+
+/** 首次/失效配置时的选目录弹窗：沿用现有 openModal + .field + /api/workspace。 */
+function openWorkspacePicker() {
+  if (!el.modalLayer.hidden) return;
+  const recent = readRecentWorkspaces();
+  const recentHtml = recent.length
+    ? '<div class="ws-menu-label">最近使用</div><div class="ws-menu-list">' +
+      recent
+        .map(
+          (item) =>
+            '<button class="recent-item" type="button" data-pick-recent="' + escapeHtml(item) + '">' +
+            '<span class="recent-name">' + escapeHtml(basename(item) || item) + "</span>" +
+            '<span class="recent-path">' + escapeHtml(item) + "</span>" +
+            "</button>",
+        )
+        .join("") +
+      "</div>"
+    : "";
+  const hint = state.workspaceError
+    ? '<div class="ws-menu-hint">启动提示：' + escapeHtml(state.workspaceError) + "</div>"
+    : '<div class="ws-menu-hint">这台电脑第一次使用 pi webui。选一个目录作为工作区，选择会保存在这台电脑上，以后自动记住。</div>';
+
+  const modal = openModal({
+    title: "选择工作目录",
+    body:
+      hint +
+      '<input class="field" id="workspacePath" placeholder="/绝对/路径" autocomplete="off">' +
+      '<div style="margin-top:10px"><button class="picker-btn" type="button" id="workspacePickInModal">' +
+      PICKER_LABEL +
+      "</button></div>" +
+      recentHtml,
+    actions: [
+      { label: "取消" },
+      {
+        label: "使用这个目录",
+        kind: "primary",
+        onClick: (card) => {
+          const path = card.querySelector("#workspacePath").value.trim();
+          if (!path) {
+            toast("请输入目录路径", "error");
+            return false;
+          }
+          switchToWorkspace(path);
+          return false;
+        },
+      },
+    ],
+  });
+
+  const input = modal.card.querySelector("#workspacePath");
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      modal.card.querySelector(".btn.primary").click();
+    }
+  });
+  const pick = modal.card.querySelector("#workspacePickInModal");
+  pick.addEventListener("click", async () => {
+    const label = pick.innerHTML;
+    pick.disabled = true;
+    try {
+      const data = await api("/api/workspace/pick", {});
+      if (data.cancelled || !data.path) return;
+      input.value = data.path;
+      switchToWorkspace(data.path);
+    } catch (error) {
+      toast(error.message, "error");
+    } finally {
+      if (document.body.contains(pick)) {
+        pick.disabled = false;
+        pick.innerHTML = label;
+      }
+    }
+  });
+  for (const row of modal.card.querySelectorAll("[data-pick-recent]")) {
+    row.addEventListener("click", () => switchToWorkspace(row.getAttribute("data-pick-recent")));
+  }
+  input.focus();
 }
 
 const PICKER_LABEL = '<svg><use href="#i-folder"/></svg><span>打开工作区</span>';
@@ -409,7 +511,7 @@ async function pickWorkspace(button) {
 
 async function switchToWorkspace(path) {
   if (!path || state.switching) return;
-  if (path === state.workspace) {
+  if (!state.needsWorkspace && path === state.workspace) {
     toast("当前已经是这个目录");
     closeMenu();
     return;
@@ -417,15 +519,27 @@ async function switchToWorkspace(path) {
   state.switching = true;
   try {
     const data = await api("/api/workspace", { path });
-    if (data.workspace === state.workspace) {
+    if (!state.needsWorkspace && data.workspace === state.workspace) {
       toast("当前已经是这个目录");
       closeMenu();
       return;
     }
     rememberWorkspace(data.workspace);
     closeMenu();
+    state.needsWorkspace = false;
+    state.workspaceError = "";
+    dismissModal();
     await resetToWorkspace(data);
-    toast("已切换到 " + (basename(data.workspace) || data.workspace));
+    if (!data.saved) {
+      toast(
+        "目录已切换，但没能保存到本机配置：" +
+          (data.saveError || "未知原因") +
+          "；重启后需要重新选择",
+        "error",
+      );
+    } else {
+      toast("已切换到 " + (basename(data.workspace) || data.workspace));
+    }
   } catch (error) {
     toast("切换失败：" + error.message, "error");
   } finally {
@@ -466,6 +580,7 @@ async function resetToWorkspace(data) {
   renderThread();
   renderSessions();
   updateWorkspace();
+  updateWorkspaceGate();
   updateChips();
   updateStats();
   updateSendState();
@@ -535,6 +650,19 @@ function setHidden(node, hidden) {
 }
 
 function updateSendState() {
+  if (state.needsWorkspace) {
+    el.input.disabled = true;
+    el.input.placeholder = "请先选择工作目录";
+    el.sendBtn.disabled = true;
+    el.sendBtn.classList.remove("is-stop");
+    setHidden(el.sendBtn.querySelector(".send-icon"), false);
+    setHidden(el.sendBtn.querySelector(".stop-icon"), true);
+    el.sendBtn.title = "请先选择工作目录";
+    el.hintText.textContent = "请先选择工作目录";
+    return;
+  }
+  el.input.disabled = false;
+  el.input.placeholder = "给 pi 发消息，输入 / 查看命令";
   const hasText = el.input.value.trim().length > 0 || state.attachments.length > 0;
   const stop = state.streaming;
   el.sendBtn.classList.toggle("is-stop", stop);
@@ -1087,6 +1215,10 @@ async function openSession(file) {
 }
 
 async function newSession() {
+  if (state.needsWorkspace) {
+    openWorkspacePicker();
+    return;
+  }
   const snapshot = await api("/api/session/new", {});
   applySnapshot(snapshot);
   connectStream();
@@ -1474,6 +1606,10 @@ function addOptimisticUser(text, images) {
 }
 
 async function sendMessage() {
+  if (state.needsWorkspace) {
+    openWorkspacePicker();
+    return;
+  }
   const text = el.input.value.trim();
   if (!text && !state.attachments.length) return;
   if (!state.key) {
@@ -2333,7 +2469,8 @@ function bindEvents() {
 
   el.themeBtn.addEventListener("click", () => openThemeMenu(el.themeBtn));
   el.moreBtn.addEventListener("click", () => openMoreMenu(el.moreBtn));
-  el.workspaceChip.addEventListener("click", openWorkspaceMenu);
+  el.workspaceChip.addEventListener("click", () => (state.needsWorkspace ? openWorkspacePicker() : openWorkspaceMenu()));
+  el.emptyPickBtn.addEventListener("click", openWorkspacePicker);
   el.modelChip.addEventListener("click", () => openModelMenu(el.modelChip));
   el.thinkChip.addEventListener("click", () => openThinkMenu(el.thinkChip));
   el.ctxChip.addEventListener("click", () => openContextMenu(el.ctxChip));
@@ -2562,13 +2699,24 @@ async function boot() {
 
   try {
     const bootstrap = await api("/api/bootstrap");
-    state.workspace = bootstrap.workspace;
+    state.workspace = bootstrap.workspace || "";
+    state.needsWorkspace = Boolean(bootstrap.needsWorkspace);
+    state.workspaceError = bootstrap.workspaceError || "";
     state.piVersion = bootstrap.piVersion || "";
     state.sessions = bootstrap.sessions || [];
-    rememberWorkspace(bootstrap.workspace);
+    if (state.workspace) rememberWorkspace(state.workspace);
     updateWorkspace();
+    updateWorkspaceGate();
     renderSessions();
     updateHeader();
+
+    // 未选择工作区：不恢复、不新建会话，绝不让后端 spawn pi。
+    if (state.needsWorkspace) {
+      renderThread();
+      if (state.workspaceError) toast(state.workspaceError, "error");
+      openWorkspacePicker();
+      return;
+    }
 
     let last = null;
     try {
