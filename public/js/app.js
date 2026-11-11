@@ -637,13 +637,25 @@ function updateChips() {
 
 function updateStats() {
   const usage = state.stats && state.stats.contextUsage;
-  if (!usage || usage.percent === null || usage.percent === undefined) {
+  if (!usage || !usage.contextWindow) {
     el.ctxChip.hidden = true;
     return;
   }
+  const circumference = 2 * Math.PI * 6;
+  // 压缩后 pi 在下一轮回复前报告不出占比（percent 为 null）：
+  // 圆环保留但置灰、弧清空，避免看起来「直接消失」。
+  if (usage.percent === null || usage.percent === undefined) {
+    el.ctxChip.classList.add("ctx-pending");
+    el.ctxChip.hidden = false;
+    el.ctxText.textContent = "—";
+    el.ctxArc.style.strokeDasharray = circumference.toFixed(2);
+    el.ctxArc.style.strokeDashoffset = circumference.toFixed(2);
+    el.ctxChip.title = "上下文已压缩，等下一轮回复后重新统计";
+    return;
+  }
+  el.ctxChip.classList.remove("ctx-pending");
   const percent = Math.max(0, Math.min(100, Number(usage.percent) || 0));
   const label = percent.toFixed(1) + "%";
-  const circumference = 2 * Math.PI * 6;
   // 1M 上下文下线性刻度几乎看不到变化，用平方根让小幅增长也有可见的弧
   const fraction = percent <= 0 ? 0 : Math.max(Math.sqrt(percent / 100), 0.05);
   el.ctxChip.hidden = false;

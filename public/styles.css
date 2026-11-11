@@ -1009,6 +1009,7 @@ html[data-theme="light"] .tok-num { color: #b45309; }
 .chip svg { width: 13px; height: 13px; flex: none; }
 .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip.ctx { gap: 6px; font-variant-numeric: tabular-nums; }
+.chip.ctx.ctx-pending { opacity: 0.55; }
 
 .ctx-ring {
   display: block;
