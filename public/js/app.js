@@ -2806,7 +2806,7 @@ function applyTheme(mode) {
     /* ignore */
   }
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", resolved === "dark" ? "#000000" : "#ffffff");
+  if (meta) meta.setAttribute("content", resolved === "dark" ? "#181c22" : "#f7f9fc");
 }
 
 function openThemeMenu(anchor) {
