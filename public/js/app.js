@@ -705,10 +705,10 @@ function openTokenMenu(anchor) {
     [
       { label: "缓存情况", labelOnly: true },
       { info: ["Token 用量", fmtExact(usage.total)] },
-      { info: ["缓存命中", usage.hitLabel] },
       { info: ["未缓存输入", fmtExact(usage.fresh)] },
-      { info: ["缓存读取", fmtExact(usage.cached)] },
       { info: ["输出", fmtExact(usage.output)] },
+      { info: ["缓存读取", fmtExact(usage.cached)] },
+      { info: ["缓存命中", usage.hitLabel] },
     ],
     { align: "left", preferUp: true, above: el.composer },
   );
