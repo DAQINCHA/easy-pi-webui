@@ -461,13 +461,15 @@ async function maybeAutoName(bridge) {
 }
 
 async function snapshot(bridge) {
-  const [state, messages, stats, models, levels, commands] = await Promise.all([
+  const [state, messages, stats, models, levels, commands, forks] = await Promise.all([
     command(bridge, { type: "get_state" }),
     command(bridge, { type: "get_messages" }),
     command(bridge, { type: "get_session_stats" }),
     command(bridge, { type: "get_available_models" }),
     command(bridge, { type: "get_available_thinking_levels" }),
     command(bridge, { type: "get_commands" }),
+    // 老版本 pi / 异常时不要让整个快照失败。
+    command(bridge, { type: "get_fork_messages" }).catch(() => ({ data: { messages: [] } })),
   ]);
 
   if (state.data?.sessionFile) bridge.sessionFile = state.data.sessionFile;
@@ -483,6 +485,8 @@ async function snapshot(bridge) {
     models: models.data?.models || [],
     thinkingLevels: levels.data?.levels || ["off"],
     commands: commands.data?.commands || [],
+    // 只给前端 entryId + 纯文本，不带图片 / base64。
+    forkMessages: (forks.data?.messages || []).map((item) => ({ entryId: item.entryId, text: item.text })),
     pendingUi: [...bridge.pendingUi.values()],
     sessions: getSessions(),
   };
@@ -780,6 +784,55 @@ async function handleApi(req, res, url) {
   if (path === "/api/session/snapshot") {
     const bridge = bridgeFor(body.key);
     return json(res, 200, await snapshot(bridge));
+  }
+
+  // ------------------------------------------------------------------
+  // fork 语义实测结论（2026-11-11，pi 1.5.0，隔离 session-dir 的一次性 RPC 会话）：
+  // 1. get_fork_messages 只返回「当前分支」的用户消息 [{entryId, text}]，按时间顺序；
+  //    fork 之后再取，列表会缩短为新分支上的用户消息（不是全部历史）。
+  // 2. fork {entryId} 一定会新建会话文件并换掉 sessionId / sessionFile（实测磁盘多出一个
+  //    .jsonl），get_messages 变成「该消息之前」的历史，被 fork 的那条及其回答都不在里面；
+  //    返回的 data.text 就是被移除的那条用户消息原文，可直接回填输入框。
+  // 3. data.cancelled === false；扩展可通过 session_before_fork 取消（本次没造出该场景），
+  //    按 cancelled === true 处理；无效 entryId 返回 success:false / "Invalid entry ID for forking"。
+  // 4. 带图片的用户消息：get_fork_messages.text 和 fork 返回的 text 都只剩文字，图片会丢，
+  //    所以前端对带图消息禁用编辑 / 重新生成。
+  // 结论按实测写，实现不按猜测；实验会话用完即删，没有动用户已有会话。
+  // ------------------------------------------------------------------
+  if (path === "/api/fork") {
+    const bridge = bridgeFor(body.key);
+    const entryId = String(body.entryId || "");
+    if (!entryId) return json(res, 400, { error: "missing entryId" });
+    const response = await bridge.send({ type: "fork", entryId }, 60000);
+    if (!response.success) return json(res, 400, { error: response.error || "fork failed" });
+    if (response.data?.cancelled) return json(res, 400, { error: "fork cancelled" });
+
+    // fork 必然换 sessionId：迁移 bridges 的 key，复用同一 bridge 实例，不新建 pi 进程。
+    const state = await command(bridge, { type: "get_state" });
+    const newId = state.data?.sessionId;
+    if (newId && "s:" + newId !== bridge.key) {
+      bridges.delete(bridge.key);
+      bridge.key = "s:" + newId;
+      bridges.set(bridge.key, bridge);
+      log("fork migrated session key", bridge.key);
+    }
+    if (state.data?.sessionFile) bridge.sessionFile = state.data.sessionFile;
+    sessionCache.at = 0;
+
+    return json(res, 200, {
+      text: response.data?.text || "",
+      snapshot: await snapshot(bridge),
+    });
+  }
+
+  // 每轮结束后前端要拿到最新的 entryId（新用户消息会产生新 entry），
+  // 又不值得为此拉整份快照，单独给一个轻量入口。
+  if (path === "/api/fork-messages") {
+    const bridge = bridgeFor(body.key);
+    const response = await command(bridge, { type: "get_fork_messages" });
+    return json(res, 200, {
+      forkMessages: (response.data?.messages || []).map((item) => ({ entryId: item.entryId, text: item.text })),
+    });
   }
 
   if (path === "/api/chat") {

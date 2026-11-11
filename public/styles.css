@@ -626,6 +626,8 @@ html[data-mode="system"] .theme-mode-system { display: block; }
 }
 .action:hover { background: var(--bg-hover); color: var(--text-2); }
 .action svg { width: 13px; height: 13px; }
+.action:disabled { opacity: .45; cursor: not-allowed; }
+.action:disabled:hover { background: none; color: var(--text-4); }
 
 /* --------------------------- markdown ----------------------------- */
 

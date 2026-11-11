@@ -58,6 +58,8 @@ const state = {
   piVersion: "",
   sessions: [],
   messages: [],
+  forkMessages: [],
+  forkBusy: false,
   models: [],
   commands: [],
   thinkingLevels: ["off"],
@@ -865,7 +867,53 @@ function blockHtml(block, live) {
   return "";
 }
 
-function userNode(message, index) {
+/* ------------------------------------------------------------------ */
+/* fork：编辑 / 重新生成（阶段 B）                                      */
+/* ------------------------------------------------------------------ */
+
+// UI 只显示当前分支的用户消息，get_fork_messages 也是当前分支：
+// 数量一致时按顺序一一对应，不一致时按文字前缀匹配，匹配不到就没有编辑按钮。
+function forkEntryMap() {
+  const map = new Map();
+  const users = state.messages.filter((message) => message && message.role === "user");
+  const forks = state.forkMessages || [];
+  if (!forks.length) return map;
+  if (users.length === forks.length) {
+    users.forEach((message, i) => map.set(message, forks[i].entryId));
+    return map;
+  }
+  for (const message of users) {
+    const text = textOf(message).trim();
+    if (!text) continue;
+    const hit = forks.find((fork) => {
+      const target = String(fork.text || "").trim();
+      return target && (target.startsWith(text.slice(0, 24)) || text.startsWith(target.slice(0, 24)));
+    });
+    if (hit) map.set(message, hit.entryId);
+  }
+  return map;
+}
+
+function forkButton(act, entryId, label, hardBlocked, title) {
+  const disabled = hardBlocked || state.streaming || state.forkBusy || !entryId;
+  return (
+    '<button class="action" type="button" data-fork-action' +
+    (hardBlocked ? " data-fork-blocked" : "") +
+    ' data-act="' + act + '"' +
+    ' data-entry-id="' + escapeHtml(entryId || "") + '"' +
+    (disabled ? " disabled" : "") +
+    ' title="' + escapeHtml(title) + '">' + label + "</button>"
+  );
+}
+
+function setForkButtonsBusy(busy) {
+  for (const button of document.querySelectorAll("[data-fork-action]")) {
+    const hardBlocked = button.hasAttribute("data-fork-blocked");
+    button.disabled = hardBlocked || busy || state.streaming || !button.getAttribute("data-entry-id");
+  }
+}
+
+function userNode(message, index, ctx = {}) {
   const node = document.createElement("div");
   node.className = "msg user";
   if (typeof index === "number") node.dataset.userIndex = String(index);
@@ -884,18 +932,31 @@ function userNode(message, index) {
   node.innerHTML = html;
   const foot = document.createElement("div");
   foot.className = "msg-foot";
-  foot.innerHTML = '<button class="action" type="button" data-act="copy-user">' + ICON("copy") + "复制</button>";
+  let footHtml = '<button class="action" type="button" data-act="copy-user">' + ICON("copy") + "复制</button>";
+  if (ctx.forkEntryId) {
+    const hardBlocked = Boolean(ctx.hasImages);
+    const title = hardBlocked
+      ? "带图片的消息不能编辑或重新生成（分叉后图片会丢）"
+      : "从这条消息之前重新开始";
+    footHtml += forkButton("edit-user", ctx.forkEntryId, "编辑", hardBlocked, title);
+    if (ctx.isLastUser) footHtml += forkButton("regen-user", ctx.forkEntryId, "重新生成", hardBlocked, title);
+  }
+  foot.innerHTML = footHtml;
   node.appendChild(foot);
   return node;
 }
 
-function assistantNode(message) {
+function assistantNode(message, ctx = {}) {
   const node = document.createElement("div");
   node.className = "msg assistant";
   const blocks = contentBlocks(message);
   let html = '<div class="avatar">π</div><div class="body">';
   for (const block of blocks) html += blockHtml(block, false);
-  html += '<div class="msg-foot"><button class="action" type="button" data-act="copy-bot">' + ICON("copy") + "复制</button></div></div>";
+  let footHtml = '<button class="action" type="button" data-act="copy-bot">' + ICON("copy") + "复制</button>";
+  if (ctx.regenEntryId) {
+    footHtml += forkButton("regen-bot", ctx.regenEntryId, "重新生成", false, "从这条回答对应的消息重新开始");
+  }
+  html += '<div class="msg-foot">' + footHtml + "</div></div>";
   node.innerHTML = html;
   return node;
 }
@@ -926,10 +987,10 @@ function hasToolCall(id) {
   return false;
 }
 
-function messageNode(message, index) {
+function messageNode(message, index, ctx = {}) {
   if (!message || message.role === "system") return null;
-  if (message.role === "user") return userNode(message, index);
-  if (message.role === "assistant") return assistantNode(message);
+  if (message.role === "user") return userNode(message, index, ctx);
+  if (message.role === "assistant") return assistantNode(message, ctx);
   if (message.role === "toolResult") {
     return hasToolCall(message.toolCallId) ? null : toolResultNode(message);
   }
@@ -947,8 +1008,24 @@ function renderThread() {
   state.optimisticEl = null;
   indexToolResults();
   el.messages.innerHTML = "";
+  const forkMap = forkEntryMap();
+  const lastUser = [...state.messages].reverse().find((message) => message && message.role === "user");
+  const lastAssistant = [...state.messages].reverse().find((message) => message && message.role === "assistant");
+  let lastUserEntry = null;
+  const assistantRegen = new Map();
+  for (const message of state.messages) {
+    if (!message) continue;
+    if (message.role === "user") lastUserEntry = forkMap.get(message) || null;
+    if (message.role === "assistant") assistantRegen.set(message, lastUserEntry);
+  }
   state.messages.forEach((message, index) => {
-    const node = messageNode(message, index);
+    const ctx = {
+      forkEntryId: forkMap.get(message) || null,
+      hasImages: message && message.role === "user" ? imageBlocks(message).length > 0 : false,
+      isLastUser: message === lastUser,
+      regenEntryId: message === lastAssistant ? assistantRegen.get(message) || null : null,
+    };
+    const node = messageNode(message, index, ctx);
     if (node) el.messages.appendChild(node);
   });
   el.empty.hidden = state.messages.length > 0 || state.streaming;
@@ -1168,6 +1245,7 @@ function applySnapshot(snapshot) {
   state.file = snapshot.sessionFile || null;
   state.workspace = snapshot.workspace || state.workspace;
   state.messages = (snapshot.messages || []).filter((message) => message.role !== "system");
+  state.forkMessages = snapshot.forkMessages || [];
   state.models = snapshot.models || [];
   state.commands = snapshot.commands || [];
   state.thinkingLevels = snapshot.thinkingLevels || ["off"];
@@ -1303,6 +1381,56 @@ async function resync() {
   }
 }
 
+// 每轮结束后取最新的可编辑消息（新用户消息会有新 entryId），再重绘按钮。
+async function refreshForkMessages() {
+  if (!state.key) return;
+  try {
+    const data = await api("/api/fork-messages", { key: state.key });
+    state.forkMessages = data.forkMessages || [];
+    renderThread();
+  } catch {
+    /* ignore */
+  }
+}
+
+async function handleForkAction(act, button) {
+  if (state.forkBusy || !state.key) return;
+  if (state.streaming) {
+    toast("正在回复，等这一轮结束再操作", "error");
+    return;
+  }
+  const entryId = button.getAttribute("data-entry-id");
+  if (!entryId) {
+    toast("这条消息不能编辑", "error");
+    return;
+  }
+  const regen = act !== "edit-user";
+  state.forkBusy = true;
+  setForkButtonsBusy(true);
+  try {
+    const data = await api("/api/fork", { key: state.key, entryId });
+    const previousKey = state.key;
+    // 先应用快照再发消息，避免拿旧 key 发。
+    applySnapshot(data.snapshot);
+    if (data.snapshot.key !== previousKey) connectStream();
+    el.input.value = data.text || "";
+    autosize();
+    updateSendState();
+    if (regen) {
+      toast("已从这条消息重新开始");
+      await sendMessage();
+    } else {
+      el.input.focus();
+      toast("原文已放回输入框，改完发送即可");
+    }
+  } catch (error) {
+    toast("操作失败：" + error.message, "error");
+  } finally {
+    state.forkBusy = false;
+    setForkButtonsBusy(false);
+  }
+}
+
 async function refreshStats() {
   if (!state.key) return;
   try {
@@ -1337,6 +1465,8 @@ function handleEvent(event) {
       updateWorking();
       renderSessions();
       updateHeader();
+      // 本轮开始后，已渲染的编辑/重生成按钮要立刻置灰（点击处也有 streaming 兜底）。
+      setForkButtonsBusy(false);
       break;
 
     case "message_start":
@@ -1398,6 +1528,8 @@ function handleEvent(event) {
       markSeen();
       refreshStats();
       refreshSessions();
+      // 新一轮的用户消息会产生新 entryId，刷新后重绘才能让编辑/重生成按钮可用。
+      refreshForkMessages();
       break;
 
     case "queue_update": {
@@ -2566,8 +2698,25 @@ function bindEvents() {
 
     const action = event.target.closest("[data-act]");
     if (action) {
+      const act = action.getAttribute("data-act");
+      if (act === "edit-user" || act === "regen-user" || act === "regen-bot") {
+        handleForkAction(act, action);
+        return;
+      }
       const node = action.closest(".msg");
-      const text = node ? node.innerText.replace(/\n*复制\s*$/, "").trim() : "";
+      if (!node) return;
+      // 只复制正文，不要把「复制 / 编辑 / 重新生成」这些按钮文字带进去。
+      const parts = [];
+      const bubble = node.querySelector(".bubble");
+      if (bubble) {
+        parts.push(bubble.innerText);
+      } else {
+        for (const child of node.querySelectorAll(".body > *")) {
+          if (child.classList && child.classList.contains("msg-foot")) continue;
+          parts.push(child.innerText);
+        }
+      }
+      const text = parts.join("\n").trim();
       if (text) {
         navigator.clipboard.writeText(text).then(
           () => toast("已复制"),
