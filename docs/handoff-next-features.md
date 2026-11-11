@@ -1,6 +1,6 @@
 # pi webui 下一阶段交接清单
 
-写于 2026-11-11。**进度（2026-11-11）：阶段 A / B / C 已全部完成，只剩阶段 D（PWA）未开始。** 给接手的 AI：这是一份实现清单，不是设计讨论。按顺序做，每阶段独立可用、可回滚。
+写于 2026-11-11。**进度（2026-11-11）：阶段 A / B / C / D 已全部完成。** 给接手的 AI：这是一份实现清单，不是设计讨论。按顺序做，每阶段独立可用、可回滚。
 
 ## 0. 先读这些
 
@@ -266,7 +266,9 @@
 
 ## 阶段 D：PWA
 
-**状态：未开始，这是下一步。** 阶段 A / B / C 已完成，不需要重做。
+**状态：已完成（2026-11-11）。** 阶段 A / B / C 已完成，不需要重做。下面是当时的实现说明，留作参考。
+
+实现结果：新增 `public/manifest.webmanifest`、`public/sw.js`、`public/icons/icon-192.png`、`public/icons/icon-512.png`；`public/index.html` 加了 manifest / apple-touch-icon / 可安装 meta；`public/js/app.js` 在安全上下文注册 SW，并在「更多」菜单加了「安装到桌面」（`beforeinstallprompt`，独立窗口时隐藏）；`lib/static.js` 补了 `.webmanifest` 的 MIME；`npm run check` 包含 `public/sw.js`。外壳与静态资源 network-first，`/api/*` 完全不拦截。
 
 ### 目标
 
@@ -347,7 +349,7 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
 1. **A 工作区切换** — 已完成（2026-11-11）
 2. **B 分支/编辑/重生成** — 已完成（2026-11-11，全量实现；fork 语义实测结论在 `server.js` 的 `/api/fork` 注释里）
 3. **C 摘要 + 通知** — 已完成（2026-11-11；摘要最终改为居中胶囊 + 展开清单，只讲文件改动）
-4. **D PWA** — **未开始，下一步**（最后做，避免 SW 缓存干扰前面阶段的调试）
+4. **D PWA** — 已完成（2026-11-11）
 
 每个阶段结束都要：
 

@@ -85,11 +85,17 @@ const state = {
   archivedOpen: false,
   menuAnchor: null,
   es: null,
+  statusEs: null,
+  statusRefreshTimer: 0,
+  // 首条 /api/session-events 的 status 事件到达前，侧栏也可能已经渲染；
+  // 给一个空 Map，避免 renderSessions / markSeen 读到 undefined。
+  runtime: new Map(),
   lastSeq: 0,
   queue: 0,
   slash: null,
   activity: "",
   railActive: null,
+  installPrompt: null,
 };
 
 const ICON = (name) => '<svg aria-hidden="true"><use href="#i-' + name + '"/></svg>';
@@ -1586,6 +1592,53 @@ async function maybeNotifyDone() {
   }
 }
 
+/* ---------- PWA：Service Worker + 安装到桌面 ---------- */
+
+function isStandalone() {
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true
+  );
+}
+
+function registerServiceWorker() {
+  // 安全上下文才注册：https / 127.0.0.1 / localhost。
+  // 局域网普通 http 注册必然失败，file:// 也不注册。
+  if (!("serviceWorker" in navigator)) return;
+  const secure =
+    location.protocol === "https:" ||
+    location.hostname === "127.0.0.1" ||
+    location.hostname === "localhost";
+  if (!secure) return;
+  // 只在这里注册一次；失败不影响页面其他功能。
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
+function setupInstallPrompt() {
+  window.addEventListener("beforeinstallprompt", (event) => {
+    // 先接管，避免浏览器自己弹一条提示；改由「更多」菜单触发。
+    event.preventDefault();
+    state.installPrompt = event;
+  });
+  window.addEventListener("appinstalled", () => {
+    state.installPrompt = null;
+    toast("已安装到桌面");
+  });
+}
+
+async function promptInstall() {
+  const prompt = state.installPrompt;
+  if (!prompt) return;
+  state.installPrompt = null;
+  try {
+    prompt.prompt();
+    const choice = await prompt.userChoice;
+    if (choice && choice.outcome === "accepted") toast("正在安装…");
+  } catch {
+    toast("安装失败", "error");
+  }
+}
+
 async function refreshStats() {
   if (!state.key) return;
   try {
@@ -2335,6 +2388,12 @@ function openMoreMenu(anchor) {
     { label: "压缩上下文", icon: "refresh", onClick: () => compactSession() },
     { label: "刷新会话", icon: "refresh", onClick: () => resync() },
     { label: "完成时通知", icon: "bolt", active: readNotifyPref(), onClick: () => toggleNotify() },
+  );
+  // 只有浏览器给了安装事件、且当前不是已安装的独立窗口时才显示。
+  if (state.installPrompt && !isStandalone()) {
+    items.push({ label: "安装到桌面", icon: "down", onClick: () => promptInstall() });
+  }
+  items.push(
     { sep: true },
     {
       label: "复制会话 ID",
@@ -2998,6 +3057,8 @@ function bindEvents() {
 
 async function boot() {
   bindEvents();
+  setupInstallPrompt();
+  registerServiceWorker();
   initSidebarResizer();
 
   let theme = "system";
