@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 页面内品牌标记：透明底，底色和圆角交给外层容器（.brand-mark / .empty-mark / .avatar），
+       免得图标自带一层圆角矩形和容器边框叠成两个对不上的框。
+       图形比例同安装图标，只是四周多留一点边（占画布 77%），小尺寸下不贴边。 -->
+  <path d="M10.4 25.88c0-2.07 1.63-3.71 3.7-3.71h30.47c2.08 0 3.71 1.64 3.71 3.71" fill="none" stroke="#f2f2f4" stroke-width="6.67" stroke-linecap="round"/>
+  <path d="M23.73 22.17v26.67M40.77 22.17v18.52c0 4.45 2.37 7.41 5.92 7.41" fill="none" stroke="#f2f2f4" stroke-width="6.67" stroke-linecap="round"/>
+  <circle cx="51.88" cy="16.25" r="4.74" fill="#8b7dff"/>
+</svg>

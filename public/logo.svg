@@ -1,6 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect x="1" y="1" width="62" height="62" rx="15" fill="#111113"/>
-  <path d="M18 26.5c0-1.4 1.1-2.5 2.5-2.5h23c1.4 0 2.5 1.1 2.5 2.5" fill="none" stroke="#f2f2f4" stroke-width="4.5" stroke-linecap="round"/>
-  <path d="M27 24v18M38.5 24v12.5c0 3 1.6 5 4 5" fill="none" stroke="#f2f2f4" stroke-width="4.5" stroke-linecap="round"/>
-  <circle cx="46" cy="20" r="3.2" fill="#8b7dff"/>
+  <!-- 浏览器标签页 favicon：自带深色圆角底（页面内的标记用 icons/mark.svg，底色交给容器）。
+       图形与 mark.svg 同比例，四周留边，16px 下也不贴边。 -->
+  <rect width="64" height="64" rx="14" fill="#111113"/>
+  <path d="M10.4 25.88c0-2.07 1.63-3.71 3.7-3.71h30.47c2.08 0 3.71 1.64 3.71 3.71" fill="none" stroke="#f2f2f4" stroke-width="6.67" stroke-linecap="round"/>
+  <path d="M23.73 22.17v26.67M40.77 22.17v18.52c0 4.45 2.37 7.41 5.92 7.41" fill="none" stroke="#f2f2f4" stroke-width="6.67" stroke-linecap="round"/>
+  <circle cx="51.88" cy="16.25" r="4.74" fill="#8b7dff"/>
 </svg>

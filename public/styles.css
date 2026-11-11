@@ -40,6 +40,8 @@ html[data-theme="dark"] {
   --bg-code: #14181e;
   --bg-inline-code: #ffffff10;
   --code-head: #ffffff08;
+  /* 品牌色块：和安装图标同一个深色底，深浅主题都用它，白色 π 才看得见 */
+  --brand-tile: #111113;
 
   /* 交互层 */
   --bg-hover: #ffffff0d;
@@ -119,6 +121,8 @@ html[data-theme="light"] {
   --bg-code: #f2f5fa;
   --bg-inline-code: #0f172a0a;
   --code-head: #0f172a05;
+  /* 品牌色块：和安装图标同一个深色底，深浅主题都用它，白色 π 才看得见 */
+  --brand-tile: #111113;
 
   /* 交互层 */
   --bg-hover: #0f172a0a;
@@ -265,12 +269,14 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 }
 
 .brand { display: flex; align-items: center; gap: 8px; text-decoration: none; flex: 1; min-width: 0; }
+/* 品牌标记：底色/圆角/描边只由容器提供，图标本身是透明底的图标形（icons/mark.svg），
+   否则图标自带的圆角矩形会和容器边框叠成两个弧度对不上的框。 */
 .brand-mark {
   flex: none;
   width: 26px; height: 26px;
   border-radius: 8px;
   overflow: hidden;
-  background: linear-gradient(160deg, var(--bg-elev-3), var(--bg-elev-2));
+  background: var(--brand-tile);
   border: 1px solid var(--border);
   display: block;
 }
@@ -682,7 +688,7 @@ html[data-mode="system"] .theme-mode-system { display: block; }
   display: grid; place-items: center;
   border-radius: 17px;
   overflow: hidden;
-  background: linear-gradient(165deg, var(--bg-elev-3), var(--bg-elev));
+  background: var(--brand-tile);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-raised);
 }
@@ -736,7 +742,7 @@ html[data-mode="system"] .theme-mode-system { display: block; }
   margin-top: 1px;
   border-radius: 8px;
   overflow: hidden;
-  background: var(--bg-elev-2);
+  background: var(--brand-tile);
   border: 1px solid var(--border);
   padding: 0;
   display: grid; place-items: center;

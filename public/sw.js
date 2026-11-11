@@ -10,7 +10,7 @@
  *   新版本不用等所有标签页关掉才生效。
  */
 
-const CACHE_NAME = "pi-webui-v2";
+const CACHE_NAME = "pi-webui-v3";
 
 // 只预缓存外壳。图标/logo/manifest 一起带上，断网时至少界面完整。
 const SHELL_ASSETS = [
@@ -20,6 +20,7 @@ const SHELL_ASSETS = [
   "/js/app.js",
   "/js/markdown.js",
   "/logo.svg",
+  "/icons/mark.svg",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/icon-512-maskable.png",

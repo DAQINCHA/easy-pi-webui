@@ -1,6 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" fill="#111113"/>
-  <path d="M18 26.5c0-1.4 1.1-2.5 2.5-2.5h23c1.4 0 2.5 1.1 2.5 2.5" fill="none" stroke="#f2f2f4" stroke-width="4.5" stroke-linecap="round"/>
-  <path d="M27 24v18M38.5 24v12.5c0 3 1.6 5 4 5" fill="none" stroke="#f2f2f4" stroke-width="4.5" stroke-linecap="round"/>
-  <circle cx="46" cy="20" r="3.2" fill="#8b7dff"/>
+  <!-- 安装图标母图：画板铺满整张画布（圆角 22%，≈ 系统 squircle），图形与 apple-touch-icon-180 同比例。
+       不再留透明外边距——系统会给图标自己套遮罩，留边会让装出来的图标比旁边的原生应用小一圈。 -->
+  <rect width="64" height="64" rx="14" fill="#111113"/>
+  <path d="M8 25.2c0-2.3 1.81-4.12 4.11-4.12h33.86c2.31 0 4.12 1.82 4.12 4.12" fill="none" stroke="#f2f2f4" stroke-width="7.41" stroke-linecap="round"/>
+  <path d="M22.81 21.08v29.63M41.74 21.08v20.58c0 4.94 2.63 8.23 6.58 8.23" fill="none" stroke="#f2f2f4" stroke-width="7.41" stroke-linecap="round"/>
+  <circle cx="54.09" cy="14.5" r="5.27" fill="#8b7dff"/>
 </svg>
