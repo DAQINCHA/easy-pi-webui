@@ -1433,6 +1433,11 @@ function renderTurnSummary() {
     card.hidden = !state.turnSummaryOpen;
     pill.classList.toggle("open", state.turnSummaryOpen);
     pill.setAttribute("aria-expanded", String(state.turnSummaryOpen));
+    // 胶囊贴在对话底部，展开后清单往下长，不滚就只看到被视口切掉的一截。
+    // 用 nearest：只在真的超出视口时滚，滚到刚好露出清单底部（平滑滚动由 .thread 的 scroll-behavior 管）。
+    if (state.turnSummaryOpen) {
+      requestAnimationFrame(() => card.scrollIntoView({ block: "nearest" }));
+    }
   });
 
   node.appendChild(pill);
@@ -1920,6 +1925,65 @@ async function maybeNotifyDone() {
   }
 }
 
+/* ---------- 完成音效（一直在，没有开关） ---------- */
+
+// 声音用 Web Audio 现场合成，不带音频文件：省一个静态资源，也不会有格式兼容问题。
+// 浏览器只允许在「用户手势」里启动音频，所以每次手势都顺手解锁一次（成本只是一次状态判断）；
+// 不设「已解锁」标志位：有的浏览器第一次建出来的还是 suspended，误标一次就再也响不了。
+let audioCtx = null;
+
+function ensureAudioContext() {
+  const Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return null;
+  if (!audioCtx) {
+    try {
+      audioCtx = new Ctor();
+    } catch {
+      return null;
+    }
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
+
+for (const gesture of ["pointerdown", "mousedown", "keydown", "touchend", "click"]) {
+  document.addEventListener(gesture, () => ensureAudioContext(), { passive: true });
+}
+
+// 两声短正弦音（G5 → D6），带柔和包络，像“叮—咚”，不刺耳。
+function scheduleDoneNotes(ctx) {
+  const start = ctx.currentTime + 0.01;
+  for (const note of [{ freq: 784, at: 0 }, { freq: 1174.7, at: 0.12 }]) {
+    const at = start + note.at;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = note.freq;
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.exponentialRampToValueAtTime(0.14, at + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.42);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(at);
+    osc.stop(at + 0.45);
+  }
+}
+
+function playDoneSound() {
+  const ctx = ensureAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "running") {
+    scheduleDoneNotes(ctx);
+    return;
+  }
+  // 还没解锁：恢复成功再补这一声；恢复不了就安静跳过（浏览器的自动播放规则，绕不过）。
+  ctx
+    .resume()
+    .then(() => {
+      if (ctx.state === "running") scheduleDoneNotes(ctx);
+    })
+    .catch(() => {});
+}
+
 /* ---------- PWA：Service Worker + 安装到桌面 ---------- */
 
 function registerServiceWorker() {
@@ -2037,6 +2101,8 @@ function handleEvent(event) {
       // 工具卡片收起之后才算本轮摘要；历史回放和主动停止都不补通知。
       const replayed = state.replaying;
       const aborted = Boolean(event.aborted);
+      // 先响再刷新：下面的重绘/刷新万一抛错，不至于把提示音一并吞掉。
+      if (!replayed && !aborted) playDoneSound();
       state.turnSummary = buildTurnSummary();
       renderSessions();
       markSeen();
