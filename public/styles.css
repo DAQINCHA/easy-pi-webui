@@ -538,6 +538,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   flex: none;
   animation: spin 2.4s linear infinite;
 }
+/* 选中行是反相底（浅色 #111 / 深色 #fff），转圈默认的 --text-3 对比不足，跟随选中前景色。 */
+.session-item.active .session-spin { border-color: var(--text-selected); }
 .unread-dot,
 .error-dot {
   width: 7px;

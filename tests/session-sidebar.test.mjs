@@ -18,8 +18,15 @@ function parseRules() {
     const body = m[2];
     const color = (body.match(/(?:^|;)\s*color:\s*([^;]+)/m) || [])[1];
     const background = (body.match(/(?:^|;)\s*background:\s*([^;]+)/m) || [])[1];
+    const borderColor = (body.match(/(?:^|;)\s*border-color:\s*([^;]+)/m) || [])[1];
     for (const selector of selectors.split(",").map((s) => s.trim()).filter(Boolean)) {
-      rules.push({ selector, index: m.index, color: color ? color.trim() : "", background: background ? background.trim() : "" });
+      rules.push({
+        selector,
+        index: m.index,
+        color: color ? color.trim() : "",
+        background: background ? background.trim() : "",
+        borderColor: borderColor ? borderColor.trim() : "",
+      });
     }
   }
   return rules;
@@ -140,6 +147,46 @@ describe("sidebar session actions and list scrollbar", () => {
     assert.ok(action.length);
     assert.match(action[0].color, /var\(--text-selected\)/);
     assert.match(CSS, /\.session-wrap\.running \.session-action\s*\{[^}]*opacity:\s*0/);
+  });
+
+  it("keeps the running spinner readable on the selected session row", () => {
+    const rules = parseRules();
+    const selectedSpin = rules.filter((rule) => rule.selector === ".session-item.active .session-spin");
+    assert.equal(selectedSpin.length, 1, "missing .session-item.active .session-spin rule");
+    assert.match(selectedSpin[0].borderColor, /var\(--text-selected\)/);
+
+    const base = rules.find((rule) => rule.selector === ".session-spin");
+    assert.ok(base, "missing .session-spin base rule");
+    assert.ok(
+      better(
+        { spec: specificity(selectedSpin[0].selector), index: selectedSpin[0].index },
+        { spec: specificity(base.selector), index: base.index },
+      ) > 0,
+      "selected spinner border must win over the base --text-3 border",
+    );
+    // 尺寸、速度、主题不变：基础转圈仍是同一虚线边框与同一动画。
+    const baseBlock = CSS.match(/(?:^|\n)\.session-spin\s*\{([^}]*)\}/);
+    assert.match(baseBlock[1], /border:\s*1\.5px dashed var\(--text-3\)/);
+    assert.match(baseBlock[1], /animation:\s*spin 2\.4s linear infinite/);
+
+    // 选中行悬停/聚焦不改底色，仍是反相底，所以 --text-selected 依然是对的前景色。
+    const selectedBg = rules
+      .filter((rule) => rule.selector === ".session-item.active" || rule.selector === ".session-item:hover")
+      .map((rule) => ({ ...rule, spec: specificity(rule.selector) }))
+      .sort(better)
+      .at(-1);
+    assert.equal(selectedBg.selector, ".session-item.active");
+    assert.match(selectedBg.background, /var\(--bg-selected\)/);
+    assert.equal(
+      rules.some((rule) => rule.selector === ".session-item.active:hover"),
+      false,
+      "active hover must not override the selected background",
+    );
+
+    const dark = CSS.slice(CSS.indexOf('html[data-theme="dark"]'), CSS.indexOf('html[data-theme="light"]'));
+    const light = CSS.slice(CSS.indexOf('html[data-theme="light"]'));
+    assert.match(dark, /--bg-selected:\s*#ffffff;[\s\S]*?--text-selected:\s*#000000;/);
+    assert.match(light, /--bg-selected:\s*#111111;[\s\S]*?--text-selected:\s*#ffffff;/);
   });
 
   it("does not let standard scrollbar properties override the thin square webkit thumb", () => {

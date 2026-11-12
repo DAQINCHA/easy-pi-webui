@@ -1313,7 +1313,10 @@ function turnSegments(turn, liveBlocks) {
 }
 
 // 汇总只讲真实数据：步骤总数、真实完成进度、真实失败数；不编比例。
-function procStats(members) {
+// options.active：这一组是当前仍在进行的那一轮的最后一组，整段过程还没结束。
+// 组里最后一条工具刚出结果、下一条还没到时，不能因为「子项都完成了」就显示已完成。
+function procStats(members, options = {}) {
+  const processRunning = Boolean(options.active);
   let tools = 0;
   let done = 0;
   let failed = 0;
@@ -1341,10 +1344,11 @@ function procStats(members) {
   let stateText;
   let tone;
   if (failed) {
+    // 失败优先：只要没有子项在跑，就把真实的错误图标亮出来，别被转圈盖住。
     icon = running || thinkingLive ? '<span class="spin"></span>' : ICON("alert");
     stateText = failed + " 个失败" + (running && tools ? " · " + done + "/" + tools : "");
     tone = "err";
-  } else if (running || thinkingLive) {
+  } else if (processRunning || running || thinkingLive) {
     icon = '<span class="spin"></span>';
     stateText = tools ? "进行中 " + done + "/" + tools : "思考中";
     tone = "run";
@@ -1371,9 +1375,9 @@ function procMemberHtml(member) {
 }
 
 // 折叠时只渲染组头，展开时才渲染里面的卡片：长任务不会因为重绘而变卡。
-function procHtml(segment) {
+function procHtml(segment, options = {}) {
   const open = state.procOpen.get(segment.key) || false;
-  const stats = procStats(segment.members);
+  const stats = procStats(segment.members, { active: options.active });
   const body = open ? segment.members.map(procMemberHtml).join("") : "";
   return (
     '<div class="proc' + (open ? " open" : "") + '" data-proc-key="' + escapeHtml(segment.key) + '">' +
@@ -1392,7 +1396,7 @@ function segmentsHtml(segments, options = {}) {
   let html = "";
   segments.forEach((segment, position) => {
     if (segment.type === "proc") {
-      html += procHtml(segment);
+      html += procHtml(segment, { active: segment.key === options.activeProc });
       return;
     }
     if (segment.type !== "text") return;
@@ -1575,6 +1579,8 @@ function turnContext(turn, options) {
     canClone: Boolean(ownsLastAssistant && lastMessageIsAssistant && !streaming && !isTurnLocked()),
     liveBlocks: opts.liveBlocks || null,
     streaming,
+    // 整段过程是否还在跑（agent 没结束），用于过程组头：不只看最后一个子步骤。
+    processRunning: Boolean(opts.processRunning),
     refresh: Boolean(opts.refresh),
   };
 }
@@ -1592,6 +1598,9 @@ function turnNodes(turn, ctx) {
   }
 
   const segments = turnSegments(turn, ctx.liveBlocks);
+  // 只有「整轮最后一段仍是过程组」时它才是活跃过程；后面已经出现正文，就说明这组步骤结束了。
+  const lastSegment = segments[segments.length - 1];
+  const activeProc = ctx.processRunning && lastSegment && lastSegment.type === "proc" ? lastSegment.key : null;
   const chunks = [];
   let buffer = [];
   for (const segment of segments) {
@@ -1623,7 +1632,10 @@ function turnNodes(turn, ctx) {
     } else {
       const align = leadAlignClass(chunk.segments);
       if (align) node.classList.add(align);
-      html += segmentsHtml(chunk.segments, { caret: ctx.streaming && position === chunks.length - 1 });
+      html += segmentsHtml(chunk.segments, {
+        caret: ctx.streaming && position === chunks.length - 1,
+        activeProc: position === chunks.length - 1 ? activeProc : null,
+      });
     }
     if (position === footAt) {
       // 纯过程的一轮没有正文，就不放一个点了没反应的「复制」。
@@ -1661,12 +1673,117 @@ function restoreFocus(selector) {
   if (target) target.focus();
 }
 
+// 过程组重绘时按组键复用原节点：只改文字和状态类，正在转的 .spin 元素原样保留。
+// 之前每次工具事件都整轮重建，新的 .spin 会把 CSS 动画从 0deg 重新开始，看起来就是闪一下。
+function syncProcNode(prev, next) {
+  const prevIco = prev.querySelector(".proc-ico");
+  const nextIco = next.querySelector(".proc-ico");
+  if (prevIco && nextIco) {
+    // 两边都还在跑：保留原来的转圈节点（以及它的动画进度），只同步状态类。
+    const keepSpin = Boolean(prevIco.querySelector(".spin") && nextIco.querySelector(".spin"));
+    if (!keepSpin) prevIco.innerHTML = nextIco.innerHTML;
+    prevIco.className = nextIco.className;
+  }
+  const prevTitle = prev.querySelector(".proc-title");
+  const nextTitle = next.querySelector(".proc-title");
+  if (prevTitle && nextTitle && prevTitle.textContent !== nextTitle.textContent) {
+    prevTitle.textContent = nextTitle.textContent;
+  }
+  const prevState = prev.querySelector(".proc-state");
+  const nextState = next.querySelector(".proc-state");
+  if (prevState && nextState) {
+    if (prevState.textContent !== nextState.textContent) prevState.textContent = nextState.textContent;
+    prevState.className = nextState.className;
+  }
+  const open = next.classList.contains("open");
+  prev.classList.toggle("open", open);
+  const prevHead = prev.querySelector(".proc-head");
+  if (prevHead) prevHead.setAttribute("aria-expanded", open ? "true" : "false");
+  const prevBody = prev.querySelector(".proc-body");
+  const nextBody = next.querySelector(".proc-body");
+  if (prevBody && nextBody) {
+    prevBody.hidden = nextBody.hidden;
+    // 展开时卡片会随流式更新；内容真的变了才重填，避免无谓替换。
+    if (open && prevBody.innerHTML !== nextBody.innerHTML) prevBody.innerHTML = nextBody.innerHTML;
+    if (!open) prevBody.innerHTML = "";
+  }
+}
+
+// 找到容器的直接子元素里带某个 class 的那个：避免 querySelector 匹配到更深的同名 class。
+function directChildByClass(node, className) {
+  for (const child of node.childNodes) {
+    if (child.nodeType === 1 && child.classList.contains(className)) return child;
+  }
+  return null;
+}
+
+// 就地调和 .body 的子节点：过程组按组键原地保留，正文/脚注/工具卡重建。
+// 关键点：过程组和它的祖先（.body / .msg）一次都不移动，转圈的 CSS 动画不会被打断。
+// 传统 DOM 里 insertBefore(existingNode) / replaceWith(existingNode) 仍是「摘下再插回」，
+// 只保留对象身份并不能保住动画时间线，所以这里必须原地更新。
+function reconcileBody(prevBody, nextBody) {
+  const prevProcs = new Map();
+  for (const child of prevBody.childNodes) {
+    if (child.nodeType === 1 && child.hasAttribute("data-proc-key")) {
+      prevProcs.set(child.getAttribute("data-proc-key"), child);
+    }
+  }
+  const desired = Array.from(nextBody.childNodes);
+  const wanted = new Set();
+  for (const child of desired) {
+    if (child.nodeType === 1 && child.hasAttribute("data-proc-key")) {
+      wanted.add(child.getAttribute("data-proc-key"));
+    }
+  }
+
+  // 先清掉所有非过程组节点（正文、脚注、工具卡），以及已经不存在的过程组。
+  // 这些节点不是转圈节点的祖先，移除它们不影响动画。
+  for (const child of Array.from(prevBody.childNodes)) {
+    if (child.nodeType === 1 && child.hasAttribute("data-proc-key")) {
+      if (!wanted.has(child.getAttribute("data-proc-key"))) prevBody.removeChild(child);
+      continue;
+    }
+    prevBody.removeChild(child);
+  }
+
+  // 剩下的过程组保持原顺序；内容一律插到「下一个过程组」之前，过程组本身不动。
+  let cursor = prevBody.childNodes[0] || null;
+  for (const child of desired) {
+    if (child.nodeType === 1 && child.hasAttribute("data-proc-key")) {
+      const prev = prevProcs.get(child.getAttribute("data-proc-key"));
+      if (prev && prev.parentNode === prevBody) {
+        // 正常追加流里顺序不会变；只有真的换位时才移动。
+        if (prev !== cursor) prevBody.insertBefore(prev, cursor);
+        syncProcNode(prev, child);
+        cursor = prev.nextSibling;
+      } else {
+        prevBody.insertBefore(child, cursor);
+      }
+      continue;
+    }
+    prevBody.insertBefore(child, cursor);
+  }
+}
+
+// 复用旧的助手包装器：只同步类名和 .body 内容，包装器与 .body 节点本身不移动。
+function patchAssistantNode(prev, next) {
+  if (prev.className !== next.className) prev.className = next.className;
+  const prevBody = directChildByClass(prev, "body");
+  const nextBody = directChildByClass(next, "body");
+  if (!prevBody || !nextBody) return false;
+  reconcileBody(prevBody, nextBody);
+  return true;
+}
+
 function refreshCurrentTurn(options) {
   const turns = buildTurns(state.messages);
   const turn = turns[turns.length - 1] || (state.live ? { index: 0, user: null, parts: [] } : null);
   if (!turn) return;
   const focus = captureFocus();
-  const nodes = turnNodes(turn, turnContext(turn, Object.assign({}, options, { refresh: true })));
+  const nodes = turnNodes(
+    turn,
+    turnContext(turn, Object.assign({}, options, { refresh: true, processRunning: Boolean(state.streaming) })),
+  );
 
   const old = state.lastTurnNodes || [];
   const oldFirst = old[0];
@@ -1680,21 +1797,54 @@ function refreshCurrentTurn(options) {
   }
 
   if (sameTurn && oldFirst.parentNode) {
+    // 助手包装器按顺序与旧节点配对后就地打补丁：包装器、.body、过程组都留在原地。
+    // 只有本轮多出来的新包装器才插入文档，结构变短时才移除多余的旧包装器。
+    const oldAssistants = old.filter((node) => node !== keepUser && node.classList.contains("assistant"));
+    const nextNodes = [];
+    let paired = 0;
+    for (const node of nodes) {
+      if (node === keepUser) {
+        nextNodes.push(node);
+        continue;
+      }
+      if (node.classList.contains("assistant") && paired < oldAssistants.length) {
+        const prev = oldAssistants[paired];
+        paired += 1;
+        if (patchAssistantNode(prev, node)) {
+          nextNodes.push(prev);
+        } else {
+          // 兜底：结构异常时退回替换，保证内容正确。
+          if (prev.parentNode) prev.parentNode.insertBefore(node, prev);
+          prev.remove();
+          nextNodes.push(node);
+        }
+        continue;
+      }
+      nextNodes.push(node);
+    }
+    for (let index = paired; index < oldAssistants.length; index += 1) {
+      oldAssistants[index].remove();
+    }
+
+    // 新节点插到旧轮末尾之后；已复用的节点还连在文档里，跳过。
     const lastOld = old[old.length - 1];
     const after = lastOld ? lastOld.nextSibling : null;
-    for (const node of old) {
-      if (node !== keepUser) node.remove();
+    const anchor = after && after.parentNode ? after : null;
+    for (const node of nextNodes) {
+      if (node.parentNode) continue;
+      if (node.classList.contains("user") && oldFirst.parentNode) {
+        oldFirst.parentNode.insertBefore(node, oldFirst);
+      } else if (anchor && anchor.parentNode) {
+        anchor.parentNode.insertBefore(node, anchor);
+      } else {
+        el.messages.appendChild(node);
+      }
     }
-    const ref = after && after.parentNode ? after : null;
-    for (const node of nodes) {
-      if (node === keepUser) continue;
-      if (ref) ref.parentNode.insertBefore(node, ref);
-      else el.messages.appendChild(node);
-    }
+    state.lastTurnNodes = nextNodes;
   } else {
     appendToThread(nodes);
+    state.lastTurnNodes = nodes;
   }
-  state.lastTurnNodes = nodes;
   el.empty.hidden = state.messages.length > 0 || state.streaming;
   restoreFocus(focus);
 }
@@ -1799,7 +1949,14 @@ function renderThread() {
   const turns = buildTurns(state.messages);
   turns.forEach((turn, position) => {
     const liveBlocks = state.live && position === turns.length - 1 ? state.live.blocks : null;
-    const nodes = turnNodes(turn, turnContext(turn, { liveBlocks, streaming: Boolean(liveBlocks) }));
+    const nodes = turnNodes(
+      turn,
+      turnContext(turn, {
+        liveBlocks,
+        streaming: Boolean(liveBlocks),
+        processRunning: state.streaming && position === turns.length - 1,
+      }),
+    );
     for (const node of nodes) el.messages.appendChild(node);
     lastNodes = nodes;
   });
