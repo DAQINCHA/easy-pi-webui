@@ -33,13 +33,11 @@ import {
   FileAccessError,
   classifyFile,
   fileHeaders,
-  forbiddenRoots,
   imageMediaType,
   isTrustedOrigin,
   parseFilenameHeader,
   previewPayload,
   readRawBody,
-  resolveProjectUploads,
   resolveWorkspaceFile,
   saveUpload,
 } from "./lib/files.js";
@@ -1096,23 +1094,6 @@ async function handleSessionBranch(req, res, body) {
   }
 }
 
-function fileDenyRoots() {
-  return forbiddenRoots({
-    sessionRoot: sessionRoot(),
-    configDir: CONFIG_DIR,
-    dataDir: DATA_DIR,
-  });
-}
-
-/** Exact project uploads subtree; null when its real path escapes the project. */
-function projectUploadsDir() {
-  try {
-    return resolveProjectUploads(PROJECT_ROOT).dir;
-  } catch {
-    return null;
-  }
-}
-
 function sendFileError(res, error) {
   if (error instanceof FileAccessError) {
     return json(res, error.status, { error: error.message, code: error.code });
@@ -1128,10 +1109,7 @@ async function handleFileRequest(req, res, url) {
   }
   let info;
   try {
-    info = resolveWorkspaceFile(workspace, rawPath, {
-      denyRoots: fileDenyRoots(),
-      projectUploads: projectUploadsDir(),
-    });
+    info = resolveWorkspaceFile(workspace, rawPath);
   } catch (error) {
     return sendFileError(res, error);
   }

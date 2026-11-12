@@ -6,11 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import {
-  FileAccessError,
   MAX_FILE_BYTES,
   UPLOAD_DIR_SEGMENTS,
   classifyFile,
-  forbiddenRoots,
   resolveWorkspaceFile,
   safeBasename,
   saveUpload,
@@ -71,32 +69,45 @@ describe("resolveWorkspaceFile", () => {
     const abs = resolveWorkspaceFile(ws, join(ws, "sub", "note.md"));
     assert.equal(abs.relativePath.replace(/\\/g, "/"), "sub/note.md");
   });
-  it("rejects lexical traversal", () => {
+  it("resolves relative traversal normally", () => {
     const ws = tempWorkspace();
-    assert.throws(() => resolveWorkspaceFile(ws, "../outside.txt"), FileAccessError);
-    assert.throws(() => resolveWorkspaceFile(ws, join(ws, "..", "nope")), FileAccessError);
+    const name = "epw-rel-outside-" + Date.now() + ".txt";
+    writeFileSync(join(tmpdir(), name), "sibling");
+    assert.equal(readFileSync(resolveWorkspaceFile(ws, "../" + name).path, "utf8"), "sibling");
+    assert.equal(readFileSync(resolveWorkspaceFile(ws, "sub/../hello.txt").path, "utf8"), "你好世界");
   });
-  it("rejects encoded traversal once decoded", () => {
+  it("resolves encoded traversal once decoded", () => {
     const ws = tempWorkspace();
-    const decoded = decodeURIComponent("%2e%2e/%2e%2e/etc/passwd");
-    assert.throws(() => resolveWorkspaceFile(ws, decoded), FileAccessError);
+    const name = "epw-encoded-" + Date.now() + ".txt";
+    writeFileSync(join(tmpdir(), name), "encoded");
+    const decoded = decodeURIComponent("%2e%2e%2f" + encodeURIComponent(name));
+    assert.equal(readFileSync(resolveWorkspaceFile(ws, decoded).path, "utf8"), "encoded");
   });
-  it("rejects symlinks that escape the workspace", () => {
+  it("follows workspace symlinks to external files", () => {
     const ws = tempWorkspace();
-    const outside = join(tmpdir(), "epw-outside-" + Date.now());
+    const outside = join(tmpdir(), "epw-outside-" + Date.now() + ".txt");
     writeFileSync(outside, "secret");
     symlinkSync(outside, join(ws, "link.txt"));
-    assert.throws(() => resolveWorkspaceFile(ws, "link.txt"), (error) => {
-      return error instanceof FileAccessError && error.code === "outside";
-    });
+    const got = resolveWorkspaceFile(ws, "link.txt");
+    assert.equal(got.path, realpathSync(outside));
+    assert.equal(readFileSync(got.path, "utf8"), "secret");
   });
-  it("rejects missing files and forbidden roots", () => {
+  it("accepts absolute paths outside the workspace", () => {
     const ws = tempWorkspace();
+    const name = "epw-abs-outside-" + Date.now() + ".txt";
+    const outside = join(tmpdir(), name);
+    writeFileSync(outside, "outside");
+    const got = resolveWorkspaceFile(ws, outside);
+    assert.equal(got.path, realpathSync(outside));
+    assert.equal(got.relativePath, name);
+    assert.equal(readFileSync(got.path, "utf8"), "outside");
+  });
+  it("rejects invalid, missing, and directory paths", () => {
+    const ws = tempWorkspace();
+    assert.throws(() => resolveWorkspaceFile(ws, ""), (error) => error.code === "invalid_path");
+    assert.throws(() => resolveWorkspaceFile(ws, "bad\0name"), (error) => error.code === "invalid_path");
     assert.throws(() => resolveWorkspaceFile(ws, "missing.bin"), (error) => error.code === "not_found");
-    assert.throws(
-      () => resolveWorkspaceFile(ws, "hello.txt", { denyRoots: [ws] }),
-      (error) => error instanceof FileAccessError && error.code === "forbidden",
-    );
+    assert.throws(() => resolveWorkspaceFile(ws, "sub"), (error) => error.code === "not_file");
   });
 });
 
@@ -137,37 +148,34 @@ describe("saveUpload", () => {
 });
 
 describe("project uploads read boundary", () => {
-  it("allows only absolute paths under the precise project uploads subtree", () => {
+  it("reads project uploads and other absolute paths by real path", () => {
     const ws = tempWorkspace();
     const { dir, project } = tempProject();
     const uploads = join(realpathSync(project), ...UPLOAD_DIR_SEGMENTS);
     const saved = saveUpload(project, "note.txt", Buffer.from("uploaded"));
-    const got = resolveWorkspaceFile(ws, saved.path, { projectUploads: uploads });
+    assert.ok(saved.path.startsWith(uploads + "/"));
+    const got = resolveWorkspaceFile(ws, saved.path);
     assert.equal(got.path, realpathSync(saved.path));
-    assert.equal(got.root, realpathSync(uploads));
+    assert.equal(got.root, realpathSync(ws));
+    assert.equal(readFileSync(got.path, "utf8"), "uploaded");
 
-    // relative upload-looking paths stay workspace-relative
+    // relative upload-looking paths still resolve from the workspace
     assert.throws(
-      () => resolveWorkspaceFile(ws, saved.relativePath, { projectUploads: uploads }),
-      (error) => error.code === "not_found" || error.code === "outside",
+      () => resolveWorkspaceFile(ws, saved.relativePath),
+      (error) => error.code === "not_found",
     );
-    // project siblings are not upload files
-    assert.throws(
-      () => resolveWorkspaceFile(ws, join(project, "sibling.txt"), { projectUploads: uploads }),
-      (error) => error.code === "outside",
+    // project siblings and unrelated absolute paths are readable too
+    assert.equal(
+      readFileSync(resolveWorkspaceFile(ws, join(project, "sibling.txt")).path, "utf8"),
+      "project sibling",
     );
     const external = join(dir, "external.txt");
     writeFileSync(external, "external");
-    assert.throws(
-      () => resolveWorkspaceFile(ws, external, { projectUploads: uploads }),
-      (error) => error.code === "outside",
-    );
+    assert.equal(readFileSync(resolveWorkspaceFile(ws, external).path, "utf8"), "external");
   });
 
   it("keeps ordinary workspace files and legacy workspace-local uploads working", () => {
     const ws = tempWorkspace();
-    const { project } = tempProject();
-    const uploads = join(realpathSync(project), ...UPLOAD_DIR_SEGMENTS);
     const legacyDir = join(ws, ".easy-pi-webui", "uploads");
     mkdirSync(legacyDir, { recursive: true });
     writeFileSync(join(legacyDir, "old.txt"), "legacy");
@@ -175,14 +183,15 @@ describe("project uploads read boundary", () => {
     assert.equal(resolveWorkspaceFile(ws, "hello.txt").relativePath.replace(/\\/g, "/"), "hello.txt");
     assert.equal(readFileSync(resolveWorkspaceFile(ws, ".easy-pi-webui/uploads/old.txt").path, "utf8"), "legacy");
 
+    // an old workspace file stays readable by absolute path from another workspace
     const other = tempWorkspace();
-    assert.throws(
-      () => resolveWorkspaceFile(other, join(ws, ".easy-pi-webui", "uploads", "old.txt"), { projectUploads: uploads }),
-      (error) => error.code === "outside",
+    assert.equal(
+      readFileSync(resolveWorkspaceFile(other, join(ws, ".easy-pi-webui", "uploads", "old.txt")).path, "utf8"),
+      "legacy",
     );
   });
 
-  it("rejects an uploaded-file symlink that escapes the uploads root", () => {
+  it("follows an uploaded-file symlink outside the uploads root for reads", () => {
     const ws = tempWorkspace();
     const { dir, project } = tempProject();
     const uploads = join(realpathSync(project), ...UPLOAD_DIR_SEGMENTS);
@@ -190,9 +199,8 @@ describe("project uploads read boundary", () => {
     const outside = join(dir, "secret.txt");
     writeFileSync(outside, "secret");
     symlinkSync(outside, join(uploads, "link.txt"));
-    assert.throws(
-      () => resolveWorkspaceFile(ws, join(uploads, "link.txt"), { projectUploads: uploads }),
-      (error) => error instanceof FileAccessError && error.code === "outside",
-    );
+    const got = resolveWorkspaceFile(ws, join(uploads, "link.txt"));
+    assert.equal(got.path, realpathSync(outside));
+    assert.equal(readFileSync(got.path, "utf8"), "secret");
   });
 });

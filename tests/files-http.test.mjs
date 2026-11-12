@@ -50,19 +50,24 @@ describe("file upload / preview / download HTTP", () => {
     assert.equal(result.res.status, 404);
   });
 
-  it("rejects lexical and encoded traversal, and escaping symlinks", async () => {
-    const slash = await fileReq(server.base, "../secret.txt", "download");
-    assert.equal(slash.res.status, 403);
-    const encoded = await fetch(server.base + "/api/file?path=%2e%2e%2f%2e%2e%2fetc%2fpasswd&mode=download");
-    assert.equal(encoded.status, 403);
+  it("resolves relative traversal and follows workspace symlinks", async () => {
     const outside = join(server.envHome.dir, "outside.txt");
-    writeFileSync(outside, "leaked");
-    symlinkSync(outside, join(server.workspace, "escape.txt"));
+    writeFileSync(outside, "outside-ok");
+    const slash = await fileReq(server.base, "../outside.txt", "download");
+    assert.equal(slash.res.status, 200);
+    assert.deepEqual(slash.data, Buffer.from("outside-ok"));
+    const encoded = await fetch(server.base + "/api/file?path=%2e%2e%2foutside.txt&mode=download");
+    assert.equal(encoded.status, 200);
+    assert.deepEqual(Buffer.from(await encoded.arrayBuffer()), Buffer.from("outside-ok"));
+    const target = join(server.envHome.dir, "outside-linked.txt");
+    writeFileSync(target, "linked-ok");
+    symlinkSync(target, join(server.workspace, "escape.txt"));
     const linked = await fileReq(server.base, "escape.txt", "download");
-    assert.equal(linked.res.status, 403);
+    assert.equal(linked.res.status, 200);
+    assert.deepEqual(linked.data, Buffer.from("linked-ok"));
   });
 
-  it("does not expose app config or session dirs, and does not inline-execute HTML", async () => {
+  it("reads temporary config/session files but never inline-executes HTML", async () => {
     const html = await upload(server.base, "page.html", Buffer.from('<script>alert(1)</script>'));
     const preview = await fileReq(server.base, html.data.path, "preview");
     assert.equal(preview.res.status, 200);
@@ -75,8 +80,17 @@ describe("file upload / preview / download HTTP", () => {
 
     const sessionFile = join(server.envHome.sessions, "secret.jsonl");
     writeFileSync(sessionFile, "session-secret");
-    const blocked = await fileReq(server.base, sessionFile, "preview");
-    assert.equal(blocked.res.status, 403);
+    const sessionRead = await fileReq(server.base, sessionFile, "preview");
+    assert.equal(sessionRead.res.status, 200);
+    assert.equal(sessionRead.data.text, "session-secret");
+
+    const configDir = join(server.envHome.home, ".config", "easy-pi-webui");
+    mkdirSync(configDir, { recursive: true });
+    const configFile = join(configDir, "secret.json");
+    writeFileSync(configFile, '{"fake":"config-secret"}');
+    const configRead = await fileReq(server.base, configFile, "preview");
+    assert.equal(configRead.res.status, 200);
+    assert.match(configRead.data.text, /config-secret/);
   });
 
   it("previews text as json and images as image bytes", async () => {
@@ -149,18 +163,20 @@ describe("file upload / preview / download HTTP", () => {
     assert.equal(stalePreview.data.text, "in-first");
 
     const legacyAfter = await fileReq(server.base, legacyPath, "download");
-    assert.equal(legacyAfter.res.status, 403);
+    assert.equal(legacyAfter.res.status, 200);
+    assert.deepEqual(legacyAfter.data, Buffer.from("legacy"));
     writeFileSync(join(next, "inside.txt"), "inside");
     const inside = await fileReq(server.base, "inside.txt", "download");
     assert.equal(inside.res.status, 200);
     assert.deepEqual(inside.data, Buffer.from("inside"));
     writeFileSync(join(server.projectRoot, "sibling.txt"), "sibling");
     const sibling = await fileReq(server.base, join(server.projectRoot, "sibling.txt"), "meta");
-    assert.equal(sibling.res.status, 403);
+    assert.equal(sibling.res.status, 200);
     const external = join(server.envHome.dir, "outside-switch.txt");
     writeFileSync(external, "outside");
     const outside = await fileReq(server.base, external, "download");
-    assert.equal(outside.res.status, 403);
+    assert.equal(outside.res.status, 200);
+    assert.deepEqual(outside.data, Buffer.from("outside"));
 
     const second = await upload(server.base, "new.txt", Buffer.from("in-second"));
     assert.equal(second.res.status, 200);
