@@ -4,3 +4,4 @@ data/
 secrets/
 node_modules/
 .easy-pi-webui/
+/uploads/

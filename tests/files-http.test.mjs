@@ -25,7 +25,7 @@ describe("file upload / preview / download HTTP", () => {
     assert.equal(again.res.status, 200);
     assert.notEqual(a.data.path, again.data.path);
     assert.equal(a.data.name, "报告.txt");
-    const down = await fileReq(server.base, a.data.relativePath, "download");
+    const down = await fileReq(server.base, a.data.path, "download");
     assert.equal(down.res.status, 200);
     assert.equal(down.res.headers.get("x-content-type-options"), "nosniff");
     assert.match(down.res.headers.get("content-disposition") || "", /attachment/);
@@ -37,7 +37,7 @@ describe("file upload / preview / download HTTP", () => {
     const result = await upload(server.base, "../../etc/passwd.txt", Buffer.from("x"));
     assert.equal(result.res.status, 200);
     assert.equal(result.data.name, "passwd.txt");
-    assert.ok(result.data.path.startsWith(join(realpathSync(server.workspace), ".easy-pi-webui", "uploads")));
+    assert.ok(result.data.path.startsWith(join(realpathSync(server.projectRoot), "uploads")));
   });
 
   it("rejects oversized uploads", async () => {
@@ -112,9 +112,21 @@ describe("file upload / preview / download HTTP", () => {
     assert.equal(ok.res.status, 200);
   });
 
-  it("follows the current workspace only after a switch", async () => {
+  it("keeps new uploads in the project root across workspace switches", async () => {
+    const projectUploads = join(realpathSync(server.projectRoot), "uploads");
     const first = await upload(server.base, "keep.txt", Buffer.from("in-first"));
     assert.equal(first.res.status, 200);
+    assert.ok(first.data.path.startsWith(projectUploads));
+    assert.ok(!first.data.path.startsWith(join(realpathSync(server.workspace), "uploads")));
+
+    // A pre-existing workspace-local upload keeps its old workspace boundary.
+    const legacyDir = join(server.workspace, ".easy-pi-webui", "uploads");
+    mkdirSync(legacyDir, { recursive: true });
+    const legacyPath = join(legacyDir, "legacy.txt");
+    writeFileSync(legacyPath, "legacy");
+    const legacyBefore = await fileReq(server.base, legacyPath, "download");
+    assert.equal(legacyBefore.res.status, 200);
+
     const next = join(server.envHome.dir, "ws2");
     mkdirSync(next);
     const switched = await fetch(server.base + "/api/workspace", {
@@ -127,12 +139,34 @@ describe("file upload / preview / download HTTP", () => {
     assert.equal(body.workspace, realpathSync(next));
 
     const stale = await fileReq(server.base, first.data.path, "download");
-    assert.equal(stale.res.status, 403);
+    assert.equal(stale.res.status, 200);
+    assert.deepEqual(stale.data, Buffer.from("in-first"));
+    const staleMeta = await fileReq(server.base, first.data.path, "meta");
+    assert.equal(staleMeta.res.status, 200);
+    const stalePreview = await fileReq(server.base, first.data.path, "preview");
+    assert.equal(stalePreview.res.status, 200);
+    assert.equal(stalePreview.data.preview, "text");
+    assert.equal(stalePreview.data.text, "in-first");
+
+    const legacyAfter = await fileReq(server.base, legacyPath, "download");
+    assert.equal(legacyAfter.res.status, 403);
+    writeFileSync(join(next, "inside.txt"), "inside");
+    const inside = await fileReq(server.base, "inside.txt", "download");
+    assert.equal(inside.res.status, 200);
+    assert.deepEqual(inside.data, Buffer.from("inside"));
+    writeFileSync(join(server.projectRoot, "sibling.txt"), "sibling");
+    const sibling = await fileReq(server.base, join(server.projectRoot, "sibling.txt"), "meta");
+    assert.equal(sibling.res.status, 403);
+    const external = join(server.envHome.dir, "outside-switch.txt");
+    writeFileSync(external, "outside");
+    const outside = await fileReq(server.base, external, "download");
+    assert.equal(outside.res.status, 403);
 
     const second = await upload(server.base, "new.txt", Buffer.from("in-second"));
     assert.equal(second.res.status, 200);
-    assert.ok(second.data.path.startsWith(join(realpathSync(next), ".easy-pi-webui")));
-    const fresh = await fileReq(server.base, second.data.relativePath, "download");
+    assert.ok(second.data.path.startsWith(projectUploads));
+    assert.ok(!second.data.path.startsWith(join(realpathSync(next), "uploads")));
+    const fresh = await fileReq(server.base, second.data.path, "download");
     assert.equal(fresh.res.status, 200);
     assert.deepEqual(fresh.data, Buffer.from("in-second"));
 
@@ -143,10 +177,26 @@ describe("file upload / preview / download HTTP", () => {
       body: JSON.stringify({ path: server.workspace }),
     });
     assert.equal(back.status, 200);
+    const legacyBack = await fileReq(server.base, legacyPath, "download");
+    assert.equal(legacyBack.res.status, 200);
+    assert.deepEqual(legacyBack.data, Buffer.from("legacy"));
+  });
+
+  it("ignores launch cwd for the project upload location", async () => {
+    const other = await startServer({ cwd: tmpdir() });
+    try {
+      const file = await upload(other.base, "cwd.txt", Buffer.from("cwd-independent"));
+      assert.equal(file.res.status, 200);
+      assert.ok(file.data.path.startsWith(join(realpathSync(other.projectRoot), "uploads")));
+      assert.ok(!file.data.path.startsWith(join(realpathSync(other.workspace), "uploads")));
+    } finally {
+      await other.stop();
+    }
   });
 
   it("passes attachment paths into the prompt and keeps image-only / bare messages unchanged", async () => {
     const file = await upload(server.base, "材料.txt", Buffer.from("材料正文"));
+    assert.ok(file.data.path.startsWith(join(realpathSync(server.projectRoot), "uploads")));
     const created = await fetch(server.base + "/api/session/new", {
       method: "POST",
       headers: { "content-type": "application/json" },

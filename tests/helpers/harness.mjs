@@ -1,5 +1,5 @@
 import { createServer } from "node:net";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,8 @@ import { spawn } from "node:child_process";
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const ROOT = join(HERE, "..", "..");
 export const FAKE_PI = join(HERE, "fake-pi.mjs");
+// Only public repo source entries are copied into each test project root.
+const SOURCE_ENTRIES = ["server.js", "package.json", "lib", "extensions", "public"];
 
 export async function freePort() {
   return new Promise((resolve, reject) => {
@@ -42,6 +44,11 @@ export async function startServer(opts = {}) {
   const port = opts.port || await freePort();
   if (port === 30142) throw new Error("refusing to bind 30142");
   const workspace = opts.workspace || envHome.workspace;
+  const projectRoot = opts.projectRoot || join(envHome.dir, "project");
+  mkdirSync(projectRoot, { recursive: true });
+  for (const entry of SOURCE_ENTRIES) {
+    cpSync(join(ROOT, entry), join(projectRoot, entry), { recursive: true });
+  }
   const env = {
     ...process.env,
     HOME: envHome.home,
@@ -57,8 +64,8 @@ export async function startServer(opts = {}) {
     ...(opts.env || {}),
   };
   delete env.PI_WEBUI_PORT;
-  const child = spawn(process.execPath, [join(ROOT, "server.js"), "--port", String(port), "--host", "127.0.0.1", "--workspace", workspace], {
-    cwd: ROOT,
+  const child = spawn(process.execPath, [join(projectRoot, "server.js"), "--port", String(port), "--host", "127.0.0.1", "--workspace", workspace], {
+    cwd: opts.cwd || ROOT,
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -91,6 +98,7 @@ export async function startServer(opts = {}) {
     base,
     envHome,
     workspace,
+    projectRoot,
     child,
     async stop() {
       if (child.exitCode != null) {

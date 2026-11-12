@@ -261,7 +261,7 @@ function appendAttachmentContext(text, files) {
     return "- " + item.name + "：" + item.storedPath + hint;
   });
   const block =
-    "请读取以下附件（文件已保存到工作目录，请用工具打开这些路径；不要假设文件内容已经贴在消息里）：\n" +
+    "请读取以下附件（文件已保存，请用工具打开下面提供的绝对路径；不要假设文件内容已经贴在消息里）：\n" +
     lines.join("\n");
   return text ? text + "\n\n" + block : block;
 }

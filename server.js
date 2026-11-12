@@ -39,11 +39,15 @@ import {
   parseFilenameHeader,
   previewPayload,
   readRawBody,
+  resolveProjectUploads,
   resolveWorkspaceFile,
   saveUpload,
 } from "./lib/files.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// Actual EasyPI project root is derived from this source file, never from the
+// selected workspace, launch cwd, or environment configuration.
+const PROJECT_ROOT = HERE;
 const PUBLIC_DIR = join(HERE, "public");
 const DATA_DIR = join(HERE, "data");
 const ARCHIVE_FILE = join(DATA_DIR, "archived.json");
@@ -1100,6 +1104,15 @@ function fileDenyRoots() {
   });
 }
 
+/** Exact project uploads subtree; null when its real path escapes the project. */
+function projectUploadsDir() {
+  try {
+    return resolveProjectUploads(PROJECT_ROOT).dir;
+  } catch {
+    return null;
+  }
+}
+
 function sendFileError(res, error) {
   if (error instanceof FileAccessError) {
     return json(res, error.status, { error: error.message, code: error.code });
@@ -1115,7 +1128,10 @@ async function handleFileRequest(req, res, url) {
   }
   let info;
   try {
-    info = resolveWorkspaceFile(workspace, rawPath, { denyRoots: fileDenyRoots() });
+    info = resolveWorkspaceFile(workspace, rawPath, {
+      denyRoots: fileDenyRoots(),
+      projectUploads: projectUploadsDir(),
+    });
   } catch (error) {
     return sendFileError(res, error);
   }
@@ -1270,7 +1286,7 @@ async function handleApi(req, res, url) {
       return sendFileError(res, error);
     }
     try {
-      const saved = saveUpload(workspace, filename, raw);
+      const saved = saveUpload(PROJECT_ROOT, filename, raw);
       return json(res, 200, saved);
     } catch (error) {
       return sendFileError(res, error);
