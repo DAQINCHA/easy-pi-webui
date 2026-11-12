@@ -9,6 +9,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PiBridge, buildEnv } from "./lib/pi-bridge.js";
 import { listSessions, isSessionFile, sessionsDir, sessionRoot, messageText } from "./lib/sessions.js";
+import { exportSessionFile, searchWorkspaceSessions } from "./lib/history.js";
 import { serveStatic } from "./lib/static.js";
 import {
   FileAccessError,
@@ -608,6 +609,63 @@ const SAFE_WITHOUT_WORKSPACE = new Set([
 ]);
 
 
+function archiveMap() {
+  return readArchive();
+}
+
+function pinMap() {
+  return readPinned();
+}
+
+async function handleSessionSearch(req, res, body) {
+  if (!isTrustedOrigin(req)) return json(res, 403, { error: "untrusted origin", code: "origin" });
+  if (!workspace) return json(res, 400, { error: "请先选择工作目录" });
+  try {
+    const result = await searchWorkspaceSessions(workspace, body && body.q, {
+      archive: archiveMap(),
+      pinned: pinMap(),
+    });
+    return json(res, 200, result);
+  } catch (error) {
+    if (error instanceof FileAccessError) {
+      return json(res, error.status, { error: error.message, code: error.code });
+    }
+    return json(res, 400, { error: error.message || "search failed" });
+  }
+}
+
+function isFileStreaming(file) {
+  const target = resolve(file);
+  for (const bridge of bridges.values()) {
+    if (bridge.sessionFile && resolve(bridge.sessionFile) === target && bridge.streaming) return true;
+  }
+  return false;
+}
+
+async function handleSessionExport(req, res, url, body) {
+  if (req.headers.origin && !isTrustedOrigin(req)) {
+    return json(res, 403, { error: "untrusted origin", code: "origin" });
+  }
+  if (!workspace) return json(res, 400, { error: "请先选择工作目录" });
+  const file = (body && body.file) || (url && url.searchParams.get("file")) || "";
+  const format = (body && body.format) || (url && url.searchParams.get("format")) || "md";
+  try {
+    const exported = await exportSessionFile(file, workspace, {
+      format,
+      streaming: isFileStreaming(file),
+    });
+    const payload = Buffer.from(exported.body, "utf8");
+    res.writeHead(200, {
+      ...exported.headers,
+      "content-length": payload.length,
+    });
+    res.end(payload);
+    return undefined;
+  } catch (error) {
+    return sendFileError(res, error);
+  }
+}
+
 function fileDenyRoots() {
   return forbiddenRoots({
     sessionRoot: sessionRoot(),
@@ -705,6 +763,10 @@ async function handleApi(req, res, url) {
     return json(res, 200, { sessions: getSessions() });
   }
 
+  if (req.method === "GET" && path === "/api/session/export") {
+    return handleSessionExport(req, res, url);
+  }
+
   if (req.method === "GET" && path === "/api/session-events") {
     res.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
@@ -790,6 +852,14 @@ async function handleApi(req, res, url) {
   }
 
   const body = await readBody(req);
+
+  if (path === "/api/sessions/search") {
+    return handleSessionSearch(req, res, body);
+  }
+
+  if (path === "/api/session/export") {
+    return handleSessionExport(req, res, url, body);
+  }
 
   if (path === "/api/session/seen") {
     const id = String(body.key || "").replace(/^s:/, "");

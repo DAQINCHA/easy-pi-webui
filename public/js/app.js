@@ -93,6 +93,10 @@ const state = {
   openThink: false,
   attachments: [],
   filter: "",
+  search: { query: "", results: null, scanned: 0, total: 0, truncated: false, loading: false, error: "" },
+  searchSeq: 0,
+  searchTimer: 0,
+  searchAbort: null,
   archivedOpen: false,
   menuAnchor: null,
   es: null,
@@ -305,12 +309,178 @@ function sessionItemHtml(session) {
 // 上一次渲染的列表 HTML：内容没变就不重建 DOM。
 let lastSessionsHtml = "";
 
-function renderSessions() {
-  const query = state.filter.trim().toLowerCase();
-  const list = state.sessions.filter((session) => {
-    if (!query) return true;
-    return (session.title + " " + session.name).toLowerCase().includes(query);
+function sessionsForSidebar() {
+  const list = state.sessions.slice();
+  if (state.file && !list.some((session) => session.file === state.file)) {
+    list.unshift({
+      file: state.file,
+      id: (state.key || "").replace(/^s:/, ""),
+      name: state.sessionName || "",
+      title: sessionTitle(),
+      updatedAt: new Date().toISOString(),
+      archived: false,
+      pinned: false,
+    });
+  }
+  return list;
+}
+
+function sessionByFile(file) {
+  if (!file) return null;
+  return (
+    state.sessions.find((item) => item.file === file) ||
+    ((state.search && state.search.results) || []).find((item) => item.file === file) ||
+    (state.file === file
+      ? {
+          file,
+          id: (state.key || "").replace(/^s:/, ""),
+          name: state.sessionName || "",
+          title: sessionTitle(),
+          archived: false,
+          pinned: false,
+        }
+      : null)
+  );
+}
+
+function highlightSearchText(text, query) {
+  const value = String(text || "");
+  const needle = String(query || "").replace(/\s+/g, " ").trim();
+  if (!needle) return escapeHtml(value);
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").split(" ").join("\\s+");
+  const re = new RegExp(escaped, "gi");
+  let last = 0;
+  let out = "";
+  let match;
+  while ((match = re.exec(value))) {
+    out += escapeHtml(value.slice(last, match.index));
+    out += "<mark>" + escapeHtml(match[0]) + "</mark>";
+    last = match.index + match[0].length;
+    if (!match[0].length) re.lastIndex += 1;
+  }
+  return out + escapeHtml(value.slice(last));
+}
+
+function searchHitHtml(hit) {
+  const active = state.file && state.file === hit.file;
+  const label = hit.name || hit.title || "未命名会话";
+  const hint = hit.match === "title" ? "标题匹配" : "对话匹配";
+  return (
+    '<div class="session-wrap search-hit' + (hit.archived ? " archived" : "") + (active ? " current" : "") + '">' +
+    '<button class="session-item' + (active ? " active" : "") + '" data-file="' + escapeHtml(hit.file) + '">' +
+    '<span class="row"><span class="t">' + highlightSearchText(label, state.filter) + "</span>" +
+    (hit.archived ? '<span class="hit-tag">已归档</span>' : "") +
+    '<span class="hit-tag">' + hint + "</span></span>" +
+    (hit.snippet ? '<span class="hit-snippet">' + highlightSearchText(hit.snippet, state.filter) + "</span>" : "") +
+    "</button>" +
+    '<button class="session-action more" type="button" data-menu-file="' + escapeHtml(hit.file) + '" title="会话操作" aria-label="会话操作">' +
+    ICON("dots") +
+    "</button>" +
+    "</div>"
+  );
+}
+
+function searchApiErrorMessage(status, errorText) {
+  const detail = String(errorText || "").trim();
+  if (status === 404) return "搜索接口不可用。需要先重启 easy-pi-webui 服务，再刷新页面。";
+  if (!status) return detail || "搜索失败，请稍后重试";
+  return "搜索失败（" + status + "）" + (detail ? "：" + detail : "");
+}
+
+function renderSessionSearch() {
+  const search = state.search || {};
+  let html = "";
+  if (search.error) {
+    html = '<div class="session-empty search-error">' + escapeHtml(search.error) + "</div>";
+  } else if (search.loading && !search.results) {
+    html = '<div class="session-empty">正在搜索对话…</div>';
+  } else if (!search.results) {
+    html = '<div class="session-empty">正在搜索对话…</div>';
+  } else {
+    const results = search.results || [];
+    let meta = "已查看 " + (search.scanned || 0) + " / " + (search.total || 0) + " 个会话";
+    if (results.length) meta = "找到 " + results.length + " 条 · " + meta;
+    if (search.truncated) meta += "，还有会话没查完或结果已截断";
+    html += '<div class="search-meta">' + escapeHtml(meta) + "</div>";
+    if (!results.length && !search.loading) {
+      html += '<div class="session-empty">没有找到包含这段文字的会话</div>';
+    } else {
+      for (const hit of results) html += searchHitHtml(hit);
+    }
+  }
+  if (html === lastSessionsHtml) return;
+  lastSessionsHtml = html;
+  suppressListFade();
+  el.sessionList.innerHTML = html;
+}
+
+function clearSessionSearch() {
+  state.searchSeq += 1;
+  if (state.searchTimer) {
+    clearTimeout(state.searchTimer);
+    state.searchTimer = 0;
+  }
+  if (state.searchAbort) {
+    state.searchAbort.abort();
+    state.searchAbort = null;
+  }
+  state.search = { query: "", results: null, scanned: 0, total: 0, truncated: false, loading: false, error: "" };
+}
+
+function scheduleSessionSearch(query) {
+  const seq = ++state.searchSeq;
+  if (state.searchTimer) clearTimeout(state.searchTimer);
+  state.search.loading = true;
+  state.search.error = "";
+  state.searchTimer = setTimeout(() => {
+    runSessionSearch(query, seq).catch((error) => {
+      if (seq !== state.searchSeq) return;
+      if (error && error.name === "AbortError") return;
+      state.search.loading = false;
+      state.search.results = null;
+      state.search.error = error && error.searchMessage ? error.searchMessage : searchApiErrorMessage(0, error && error.message);
+      toast(state.search.error, "error");
+      renderSessions();
+    });
+  }, 280);
+}
+
+async function runSessionSearch(query, seq) {
+  if (state.searchAbort) state.searchAbort.abort();
+  const abort = new AbortController();
+  state.searchAbort = abort;
+  const response = await fetch("/api/sessions/search", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ q: query }),
+    signal: abort.signal,
   });
+  const data = await response.json().catch(() => ({}));
+  if (seq !== state.searchSeq) return;
+  if (!response.ok) {
+    const err = new Error(data.error || "HTTP " + response.status);
+    err.searchMessage = searchApiErrorMessage(response.status, data.error);
+    throw err;
+  }
+  state.search = {
+    query: data.query || query,
+    results: data.results || [],
+    scanned: data.scanned || 0,
+    total: data.total || 0,
+    truncated: Boolean(data.truncated),
+    loading: false,
+    error: "",
+  };
+  renderSessions();
+}
+
+function renderSessions() {
+  const query = state.filter.trim();
+  if (query) {
+    renderSessionSearch();
+    return;
+  }
+  const list = sessionsForSidebar();
 
   if (!list.length) {
     const emptyHtml =
@@ -645,6 +815,9 @@ async function resetToWorkspace(data) {
   state.turnFiles = new Map();
   state.turnSummary = null;
   state.turnSummaryOpen = false;
+  state.filter = "";
+  if (el.search) el.search.value = "";
+  clearSessionSearch();
   renderAttachments();
   renderThread();
   renderSessions();
@@ -2963,8 +3136,71 @@ async function copySessionId(key) {
   }
 }
 
+function filenameFromDisposition(header) {
+  const value = String(header || "");
+  const star = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (star) {
+    try {
+      return decodeURIComponent(star[1]);
+    } catch {
+      /* ignore */
+    }
+  }
+  const plain = value.match(/filename="([^"]+)"/i);
+  return plain ? plain[1] : "";
+}
+
+async function exportSession(file, format) {
+  if (!file) {
+    toast("当前没有可导出的会话", "error");
+    return;
+  }
+  try {
+    const response = await fetch(
+      "/api/session/export?file=" + encodeURIComponent(file) + "&format=" + encodeURIComponent(format || "md"),
+    );
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "HTTP " + response.status);
+    }
+    const blob = await response.blob();
+    const name = filenameFromDisposition(response.headers.get("content-disposition")) || (format === "html" ? "会话.html" : "会话.md");
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    toast(format === "html" ? "已导出网页" : "已导出 Markdown");
+  } catch (error) {
+    toast("导出失败：" + error.message, "error");
+  }
+}
+
+function locateSearchHit(hit) {
+  const raw = String((hit && (hit.quote || hit.snippet)) || "").replace(/[…]/g, "").trim();
+  if (!raw) return;
+  const needle = raw.slice(0, 48);
+  const find = () => {
+    const nodes = el.messages.querySelectorAll(".msg");
+    for (const node of nodes) {
+      if (node.textContent && node.textContent.includes(needle)) {
+        node.classList.add("search-flash");
+        node.scrollIntoView({ block: "center" });
+        return true;
+      }
+    }
+    return false;
+  };
+  requestAnimationFrame(() => {
+    if (!find()) setTimeout(find, 80);
+  });
+}
+
 function openSessionMenu(anchor, file) {
-  const session = state.sessions.find((item) => item.file === file);
+  const session = sessionByFile(file);
   if (!session) return;
   const key = "s:" + session.id;
   openMenu(
@@ -2972,6 +3208,9 @@ function openSessionMenu(anchor, file) {
     [
       { label: "重命名", icon: "edit", onClick: () => renameSession(session) },
       { label: "复制会话 ID", icon: "copy", onClick: () => copySessionId(key) },
+      { sep: true },
+      { label: "导出为 Markdown", icon: "file", onClick: () => exportSession(file, "md") },
+      { label: "导出为网页（可离线打开）", icon: "file", onClick: () => exportSession(file, "html") },
       { sep: true },
       session.pinned
         ? { label: "取消置顶", icon: "pin", onClick: () => setPinned(file, false) }
@@ -3519,7 +3758,10 @@ function bindEvents() {
     const button = event.target.closest("[data-file]");
     if (!button) return;
     const file = button.getAttribute("data-file");
-    openSession(file)
+    openSession(file).then(() => {
+      const hit = ((state.search && state.search.results) || []).find((item) => item.file === file);
+      if (hit) locateSearchHit(hit);
+    })
       .then(() => {
         if (window.innerWidth <= 900) el.app.classList.remove("sidebar-open");
       })
@@ -3528,6 +3770,13 @@ function bindEvents() {
 
   el.search.addEventListener("input", () => {
     state.filter = el.search.value;
+    const query = state.filter.trim();
+    if (!query) {
+      clearSessionSearch();
+      renderSessions();
+      return;
+    }
+    scheduleSessionSearch(query);
     renderSessions();
   });
 
