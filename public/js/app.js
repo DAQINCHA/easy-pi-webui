@@ -86,6 +86,7 @@ const state = {
   sessionName: "",
   stats: {},
   streaming: false,
+  compacting: false,
   live: null,
   optimisticEl: null,
   // 当前轮次（turn）的 DOM 节点，重绘时按它定位插入点。
@@ -1423,7 +1424,7 @@ function forkEntryMap() {
 }
 
 function isTurnLocked() {
-  if (state.streaming || state.forkBusy) return true;
+  if (state.streaming || state.forkBusy || state.compacting) return true;
   const phase = state.task && state.task.phase;
   return phase === PHASE.WAITING || phase === PHASE.THINKING || phase === PHASE.WRITING || phase === PHASE.TOOL || phase === PHASE.RETRYING || phase === PHASE.WORKING;
 }
@@ -1475,6 +1476,7 @@ function userNode(message, index, ctx = {}) {
   let footHtml = '<button class="action" type="button" data-act="copy-user">' + ICON("copy") + "复制</button>";
   if (ctx.forkEntryId) {
     footHtml += forkButton("edit-user", ctx.forkEntryId, "编辑", false, "把这条请求放回输入框。只有发送时才会从这里继续，原来的回答还在。取消则不会改动对话");
+    footHtml += forkButton("branch-user", ctx.forkEntryId, "创建分支", false, "从这条请求之前另开一个独立会话，并把这条完整请求（含图片）放入输入框，不会自动发送。原来的对话还在");
   }
   foot.innerHTML = footHtml;
   node.appendChild(foot);
@@ -1491,20 +1493,24 @@ function leadAlignClass(segments) {
 function lastUserAndAssistant() {
   let lastUser = null;
   let lastAssistant = null;
+  let lastMessage = null;
   for (const message of state.messages) {
     if (!message) continue;
     if (message.role === "user") lastUser = message;
     if (message.role === "assistant") lastAssistant = message;
+    if (message.role === "user" || message.role === "assistant") lastMessage = message;
   }
-  return { lastUser, lastAssistant };
+  return { lastUser, lastAssistant, lastMessage };
 }
 
 function turnContext(turn, options) {
   const opts = options || {};
   const forkMap = forkEntryMap();
-  const { lastUser, lastAssistant } = lastUserAndAssistant();
+  const { lastUser, lastAssistant, lastMessage } = lastUserAndAssistant();
   const userMessage = turn.user ? turn.user.message : null;
   const ownsLastAssistant = Boolean(lastAssistant) && turn.parts.some((part) => part.message === lastAssistant);
+  const lastMessageIsAssistant = Boolean(lastMessage) && lastMessage.role === "assistant";
+  const streaming = Boolean(opts.streaming);
   return {
     user: {
       forkEntryId: userMessage ? forkMap.get(userMessage) || null : null,
@@ -1513,8 +1519,10 @@ function turnContext(turn, options) {
     },
     regenEntryId: userMessage ? forkMap.get(userMessage) || null : null,
     ownsLastAssistant,
+    lastMessageIsAssistant,
+    canClone: Boolean(ownsLastAssistant && lastMessageIsAssistant && !streaming && !isTurnLocked()),
     liveBlocks: opts.liveBlocks || null,
-    streaming: Boolean(opts.streaming),
+    streaming,
     refresh: Boolean(opts.refresh),
   };
 }
@@ -1570,7 +1578,9 @@ function turnNodes(turn, ctx) {
       let footHtml = hasText ? '<button class="action" type="button" data-act="copy-bot">' + ICON("copy") + "复制</button>" : "";
       if (ctx.regenEntryId && !ctx.streaming) {
         footHtml += forkButton("retry-bot", ctx.regenEntryId, "重新生成", false, "在同一会话里按原来的请求重新生成。原来的回答还在。重新生成会重新执行任务；已修改文件不会自动回滚");
-        footHtml += forkButton("alternate-bot", ctx.regenEntryId, "另开分支", false, "会新建一个独立会话来试另一种做法，不是在当前会话里分叉。原来的对话还在，不会自动发送");
+      }
+      if (ctx.canClone && ctx.regenEntryId) {
+        footHtml += forkButton("clone-bot", ctx.regenEntryId, "创建分支", false, "复制当前完整对话（含最后回复）到一个新的独立会话。输入框是空的，不会自动发送。原来的对话还在");
       }
       if (footHtml) html += '<div class="msg-foot">' + footHtml + "</div>";
     }
@@ -1962,6 +1972,7 @@ function applySnapshot(snapshot) {
   state.thinkingLevel = (snapshot.state && snapshot.state.thinkingLevel) || "off";
   state.sessionName = (snapshot.state && snapshot.state.sessionName) || "";
   state.streaming = Boolean(snapshot.state && snapshot.state.isStreaming);
+  state.compacting = Boolean(snapshot.state && snapshot.state.isCompacting);
   if (!state.streaming) state.live = null;
   state.queue = 0;
   state.toolResults.clear();
@@ -2372,10 +2383,17 @@ async function runSessionBranch(mode, entryId, from) {
       toast("已在同一会话重新生成。原来的回答还在，文件改动不会自动回滚");
       return;
     }
+    if (mode === "clone") {
+      fillComposer("", []);
+      state.pendingEdit = null;
+      renderPendingEditHint();
+      toast("已创建分支，复制了当前完整对话。原来的会话还在。输入框是空的，不会自动执行");
+      return;
+    }
     fillComposer(data.draft || "", data.images || []);
     state.pendingEdit = null;
     renderPendingEditHint();
-    toast("已另开一个独立会话，原来的对话还在。改完这条请求再发送，不会自动执行");
+    toast("已创建分支。原来的会话还在。输入框里是这条完整请求，改完再发送，不会自动执行");
   } catch (error) {
     const data = error && error.data;
     if (data && data.snapshot) {
@@ -2400,8 +2418,12 @@ async function handleForkAction(act, button) {
     confirmRetry(entryId, act === "retry-user" ? "user" : "assistant");
     return;
   }
-  if (act === "alternate-bot") {
-    void runSessionBranch("alternate", entryId, "assistant");
+  if (act === "branch-user") {
+    void runSessionBranch("fork", entryId, "user");
+    return;
+  }
+  if (act === "clone-bot") {
+    void runSessionBranch("clone", entryId, "assistant");
   }
 }
 
@@ -2678,10 +2700,14 @@ function handleEvent(event) {
     }
 
     case "compaction_start":
+      state.compacting = true;
+      setForkButtonsBusy(false);
       addNotice(event.reason === "manual" ? "正在压缩上下文…" : "上下文接近上限，正在自动压缩…");
       break;
 
     case "compaction_end":
+      state.compacting = false;
+      setForkButtonsBusy(false);
       addNotice(event.aborted ? "压缩已取消" : event.errorMessage ? "压缩失败：" + event.errorMessage : "上下文已压缩");
       break;
 
@@ -4175,13 +4201,13 @@ function bindEvents() {
     const action = event.target.closest("[data-act]");
     if (action) {
       const act = action.getAttribute("data-act");
-      if (act === "edit-user" || act === "retry-user" || act === "retry-bot" || act === "alternate-bot" || act === "regen-user" || act === "regen-bot") {
+      if (act === "edit-user" || act === "retry-user" || act === "retry-bot" || act === "branch-user" || act === "clone-bot" || act === "regen-user" || act === "regen-bot") {
         handleForkAction(act, action);
         return;
       }
       const node = action.closest(".msg");
       if (!node) return;
-      // 只复制正文，不要把过程摘要、卡片内容、「复制 / 编辑 / 重新生成 / 另开分支」这些按钮文字带进去。
+      // 只复制正文，不要把过程摘要、卡片内容、「复制 / 编辑 / 重新生成 / 创建分支」这些按钮文字带进去。
       const parts = [];
       const bubble = node.querySelector(".bubble");
       if (bubble) {

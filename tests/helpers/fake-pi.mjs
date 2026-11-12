@@ -161,11 +161,7 @@ function handleTree(id, invocation, entryId) {
   return reply(id, { disposition: "handled" });
 }
 
-function handleFork(id, entryId) {
-  const entry = byIdMap().get(String(entryId));
-  if (!entry) return fail(id, "unknown entry");
-  const prefixLeaf = entry.parentId ? String(entry.parentId) : "";
-  const path = pathEntries(prefixLeaf);
+function switchToBranchedSession(path, nextLeaf) {
   const newId = "fork-" + randomUUID();
   const dir = sessionFile ? dirname(sessionFile) : process.cwd();
   const newFile = join(dir, newId + ".jsonl");
@@ -183,8 +179,28 @@ function handleFork(id, entryId) {
   sessionId = newId;
   sessionFile = newFile;
   entries = path.slice();
-  leafId = prefixLeaf;
-  return reply(id, { text: textOf(entry), sessionId, sessionFile });
+  leafId = nextLeaf;
+  const reloaded = loadEntries(newFile);
+  sessionName = reloaded.name || "";
+  sessionModel = reloaded.model || sessionModel;
+  sessionThinking = reloaded.thinkingLevel || sessionThinking;
+  return { sessionId, sessionFile };
+}
+
+function handleFork(id, entryId) {
+  const entry = byIdMap().get(String(entryId));
+  if (!entry) return fail(id, "unknown entry");
+  const prefixLeaf = entry.parentId ? String(entry.parentId) : "";
+  const path = pathEntries(prefixLeaf);
+  const switched = switchToBranchedSession(path, prefixLeaf);
+  return reply(id, { text: textOf(entry), cancelled: false, sessionId: switched.sessionId, sessionFile: switched.sessionFile });
+}
+
+function handleClone(id) {
+  if (!leafId) return fail(id, "Cannot clone session: no current entry selected");
+  const path = pathEntries(leafId);
+  const switched = switchToBranchedSession(path, leafId);
+  return reply(id, { cancelled: false, sessionId: switched.sessionId, sessionFile: switched.sessionFile });
 }
 
 function handle(record) {
@@ -226,6 +242,8 @@ function handle(record) {
       });
     case "fork":
       return handleFork(id, record.entryId);
+    case "clone":
+      return handleClone(id);
     case "prompt": {
       const text = String(record.message || "");
       const match = text.match(/^\/([A-Za-z0-9:_-]+)\s+([A-Za-z0-9._-]+)\s*$/);

@@ -8,7 +8,7 @@ import { execFile, execFileSync, spawn } from "node:child_process";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PiBridge, buildEnv } from "./lib/pi-bridge.js";
-import { listSessions, isSessionFile, sessionsDir, sessionRoot, messageText } from "./lib/sessions.js";
+import { listSessions, isSessionFile, sessionsDir, sessionRoot, messageText, visibleSessionTitle } from "./lib/sessions.js";
 import { exportSessionFile, resolveSessionFile, searchWorkspaceSessions } from "./lib/history.js";
 import {
   RETRY_WARNING,
@@ -26,6 +26,7 @@ import {
   sessionBusyReason,
   treeCommandMessage,
   ALTERNATE_SUFFIX,
+  cloneLeafState,
 } from "./lib/tree-nav.js";
 import { serveStatic } from "./lib/static.js";
 import {
@@ -837,7 +838,44 @@ async function promptUser(bridge, prompt) {
   return started;
 }
 
+async function captureOriginalTitle(bridge, sessionFile) {
+  let liveName = "";
+  try {
+    const beforeState = await command(bridge, { type: "get_state" });
+    liveName = String((beforeState.data && beforeState.data.sessionName) || "").trim();
+  } catch {
+    /* fall back to the original session file */
+  }
+  return visibleSessionTitle(sessionFile, { liveName });
+}
+
+async function migrateToNewSession(bridge, { previousKey, previousId, sessionFile, beforeFp, originalTitle, commandName }) {
+  const state = await command(bridge, { type: "get_state" });
+  const newId = state.data && state.data.sessionId;
+  const newFile = state.data && state.data.sessionFile;
+  const label = commandName === "clone" ? "clone" : "fork";
+  if (!newId || (previousId && newId === previousId) || (newFile && samePath(newFile, sessionFile))) {
+    throw new FileAccessError(
+      "官方 " + label + " 没有创建新会话，已中止，没有改成同会话冒充。",
+      502,
+      label === "clone" ? "clone_no_new_session" : "fork_no_new_session",
+    );
+  }
+  if (previousKey) bridges.delete(previousKey);
+  bridge.key = "s:" + newId;
+  bridges.set(bridge.key, bridge);
+  if (newFile) bridge.sessionFile = newFile;
+  log(label + " migrated session key", bridge.key);
+  let originalUnchanged = true;
+  try { originalUnchanged = fingerprintsMatch(beforeFp, fileFingerprint(sessionFile)); } catch { originalUnchanged = false; }
+  const name = branchTitle(originalTitle, ALTERNATE_SUFFIX);
+  try { await command(bridge, { type: "set_session_name", name }); } catch { /* ignore */ }
+  sessionCache.at = 0;
+  return { snapshot: await snapshot(bridge), originalUnchanged, name };
+}
+
 async function handleSessionBranch(req, res, body) {
+
   if (req.headers.origin && !isTrustedOrigin(req)) {
     return json(res, 403, { error: "untrusted origin", code: "origin" });
   }
@@ -847,7 +885,7 @@ async function handleSessionBranch(req, res, body) {
   const entryId = body && body.entryId;
   const from = body && body.from;
   const key = body && body.key;
-  if (!["preview", "retry", "edit-send", "alternate"].includes(mode)) {
+  if (!["preview", "retry", "edit-send", "alternate", "fork", "clone"].includes(mode)) {
     return json(res, 400, { error: "不支持的操作", code: "bad_mode" });
   }
   if (!file || !entryId) {
@@ -887,15 +925,58 @@ async function handleSessionBranch(req, res, body) {
     }
 
     let entries = [];
+    let liveLeafId = "";
     if (bridge) {
       try {
         const live = await readLiveEntries(bridge);
         entries = live.entries || [];
+        liveLeafId = live.leafId || "";
       } catch {
         entries = [];
       }
     }
     if (!entries.length) entries = entriesFromFile(sessionFile);
+    if (mode === "clone" && !liveLeafId && bridge) {
+      try { liveLeafId = await currentLeafId(bridge); } catch { /* ignore */ }
+    }
+
+    if (mode === "clone") {
+      const leafCheck = cloneLeafState(entries, liveLeafId, entryId);
+      if (!leafCheck.ok) {
+        return json(res, leafCheck.status, { error: leafCheck.error, code: leafCheck.code });
+      }
+      const beforeFp = fileFingerprint(sessionFile);
+      const originalTitle = await captureOriginalTitle(bridge, sessionFile);
+      const previousKey = bridge.key;
+      const previousId = previousKey && String(previousKey).startsWith("s:") ? previousKey.slice(2) : "";
+      const response = await bridge.send({ type: "clone" }, 60000);
+      if (!response.success) {
+        return json(res, 400, { error: response.error || "无法创建分支", code: "clone_failed" });
+      }
+      if (response.data && response.data.cancelled) {
+        return json(res, 400, { error: "创建分支已取消", code: "clone_cancelled" });
+      }
+      const migrated = await migrateToNewSession(bridge, {
+        previousKey,
+        previousId,
+        sessionFile,
+        beforeFp,
+        originalTitle,
+        commandName: "clone",
+      });
+      return json(res, 200, {
+        ok: true,
+        mode,
+        newSession: true,
+        sameSession: false,
+        sent: false,
+        draft: "",
+        images: [],
+        originalFile: sessionFile,
+        originalUnchanged: migrated.originalUnchanged,
+        snapshot: migrated.snapshot,
+      });
+    }
 
     const userEntry = findUserEntry(entries, entryId, from);
     const prompt = extractPrompt(userEntry);
@@ -968,35 +1049,26 @@ async function handleSessionBranch(req, res, body) {
       });
     }
 
-    // alternate: official fork creates a new session and switches this process to it.
+    // fork / alternate: official fork from before the user request.
+    // Capture the original visible title before the process switches to the new session.
+    const originalTitle = await captureOriginalTitle(bridge, sessionFile);
     const previousKey = bridge.key;
     const previousId = previousKey && String(previousKey).startsWith("s:") ? previousKey.slice(2) : "";
     const response = await bridge.send({ type: "fork", entryId: userEntry.id }, 60000);
     if (!response.success) {
-      return json(res, 400, { error: response.error || "无法另开分支", code: "fork_failed" });
+      return json(res, 400, { error: response.error || "无法创建分支", code: "fork_failed" });
     }
     if (response.data && response.data.cancelled) {
-      return json(res, 400, { error: "另开分支已取消", code: "fork_cancelled" });
+      return json(res, 400, { error: "创建分支已取消", code: "fork_cancelled" });
     }
-    const state = await command(bridge, { type: "get_state" });
-    const newId = state.data && state.data.sessionId;
-    const newFile = state.data && state.data.sessionFile;
-    if (!newId || (previousId && newId === previousId) || (newFile && samePath(newFile, sessionFile))) {
-      return json(res, 502, {
-        error: "官方 fork 没有创建新会话，已中止，没有改成同会话冒充。",
-        code: "fork_no_new_session",
-      });
-    }
-    if (previousKey) bridges.delete(previousKey);
-    bridge.key = "s:" + newId;
-    bridges.set(bridge.key, bridge);
-    if (newFile) bridge.sessionFile = newFile;
-    log("fork migrated session key", bridge.key);
-    let originalUnchanged = true;
-    try { originalUnchanged = fingerprintsMatch(beforeFp, fileFingerprint(sessionFile)); } catch { originalUnchanged = false; }
-    const name = branchTitle((state.data && state.data.sessionName) || "", ALTERNATE_SUFFIX);
-    try { await command(bridge, { type: "set_session_name", name }); } catch { /* ignore */ }
-    sessionCache.at = 0;
+    const migrated = await migrateToNewSession(bridge, {
+      previousKey,
+      previousId,
+      sessionFile,
+      beforeFp,
+      originalTitle,
+      commandName: "fork",
+    });
     return json(res, 200, {
       ok: true,
       mode,
@@ -1007,8 +1079,8 @@ async function handleSessionBranch(req, res, body) {
       images: prompt.images,
       warning: RETRY_WARNING,
       originalFile: sessionFile,
-      originalUnchanged,
-      snapshot: await snapshot(bridge),
+      originalUnchanged: migrated.originalUnchanged,
+      snapshot: migrated.snapshot,
     });
   } catch (error) {
     return sendFileError(res, error);

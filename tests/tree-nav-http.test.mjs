@@ -19,9 +19,12 @@ function writeJsonl(dir, name, records) {
 }
 
 function sample(id, title, extra = []) {
-  return [
+  const rows = [
     { type: "session", version: 3, id, cwd: "/tmp/ws", timestamp: "2026-01-01T00:00:00.000Z" },
-    { type: "session_info", name: title },
+  ];
+  if (title) rows.push({ type: "session_info", name: title });
+  return [
+    ...rows,
     { type: "model_change", id: "mc1", parentId: "", timestamp: "2026-01-01T00:00:00.100Z", provider: "demo", modelId: "demo-1" },
     {
       type: "message",
@@ -286,7 +289,7 @@ describe("tree navigation HTTP", () => {
       assert.equal(data.originalUnchanged, true);
       assert.equal(fileFingerprint(file).hash, before.hash);
       assert.notEqual(data.snapshot.key, snapshot.key);
-      assert.match(data.snapshot.state.sessionName || "", /另一分支/);
+      assert.equal(data.snapshot.state.sessionName, "整理会议 · 另一分支");
       assert.equal(modelPrompts(server.envHome.log).length, 0);
       const created = sessionFiles(folder).filter((name) => !namesBefore.has(name));
       assert.equal(created.length, 1);
@@ -294,6 +297,77 @@ describe("tree navigation HTTP", () => {
       assert.equal(newBody.includes("请在 ubuntu 上安装 nginx"), false);
       assert.equal(newBody.includes("已经装好了"), false);
       assert.equal(readFileSync(file, "utf8").includes("已经装好了"), true);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it("names an alternate session from the first user message when there is no explicit name", async () => {
+    const server = await startServer();
+    try {
+      const folder = isolatedSessionDir(server);
+      const file = writeJsonl(folder, "derived.jsonl", sample("derived", ""));
+      const { res, data, snapshot } = await openAndBranch(server, file, { mode: "alternate", entryId: "a1", from: "assistant" });
+      assert.equal(res.status, 200, data.error);
+      assert.equal(data.newSession, true);
+      assert.notEqual(data.snapshot.key, snapshot.key);
+      assert.equal(data.snapshot.state.sessionName, "请在 ubuntu 上安装 nginx · 另一分支");
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it("uses an explicit rename, and does not stack the branch suffix on a later branch", async () => {
+    const server = await startServer();
+    try {
+      const folder = isolatedSessionDir(server);
+      const file = writeJsonl(folder, "renamed.jsonl", sample("renamed", ""));
+      const opened = await fetch(server.base + "/api/session/open", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ file }),
+      });
+      const snapshot = await opened.json();
+      assert.equal(opened.status, 200, snapshot.error);
+      const renamed = await fetch(server.base + "/api/rename", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key: snapshot.key, name: "整理会议" }),
+      });
+      const renamedData = await renamed.json().catch(() => ({}));
+      assert.equal(renamed.status, 200, renamedData.error || "rename failed");
+
+      const first = await fetch(server.base + "/api/session/branch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ file, key: snapshot.key, mode: "alternate", entryId: "a1", from: "assistant" }),
+      });
+      const firstData = await first.json();
+      assert.equal(first.status, 200, firstData.error);
+      assert.equal(firstData.snapshot.state.sessionName, "整理会议 · 另一分支");
+
+      const already = writeJsonl(folder, "already.jsonl", sample("already", "整理会议 · 另一分支"));
+      const again = await openAndBranch(server, already, { mode: "alternate", entryId: "a1", from: "assistant" });
+      assert.equal(again.res.status, 200, again.data.error);
+      assert.equal(again.data.snapshot.state.sessionName, "整理会议 · 另一分支");
+      assert.notEqual(again.data.snapshot.key, firstData.snapshot.key);
+      assert.equal(again.data.newSession, true);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it("falls back to an unnamed label when the original session has no visible title", async () => {
+    const server = await startServer();
+    try {
+      const folder = isolatedSessionDir(server);
+      const records = sample("blank", "");
+      const user = records.find((item) => item.id === "u1");
+      user.message = { role: "user", content: [{ type: "image", mimeType: "image/png", data: "QUFB" }] };
+      const file = writeJsonl(folder, "blank.jsonl", records);
+      const { res, data } = await openAndBranch(server, file, { mode: "alternate", entryId: "a1", from: "assistant" });
+      assert.equal(res.status, 200, data.error);
+      assert.equal(data.snapshot.state.sessionName, "未命名会话 · 另一分支");
     } finally {
       await server.stop();
     }
@@ -371,5 +445,211 @@ describe("tree navigation HTTP", () => {
     await withServer({ FAKEPI_IS_STREAMING: "1" }, "busy.jsonl", "进行中", "retry", /进行/);
     await withServer({ FAKEPI_IS_COMPACTING: "1" }, "compact.jsonl", "压缩中", "retry", /进行/);
     await withServer({ FAKEPI_PENDING_UI: "1" }, "wait.jsonl", "等确认", "alternate", /确认/);
+  });
+
+  it("forks from before a user request, keeps a complete draft, and does not auto-prompt", async () => {
+    const server = await startServer();
+    try {
+      const folder = isolatedSessionDir(server);
+      const file = writeJsonl(folder, "fork-user.jsonl", sample("fork-user", "整理会议"));
+      const before = fileFingerprint(file);
+      const namesBefore = new Set(sessionFiles(folder));
+      const { res, data, snapshot } = await openAndBranch(server, file, { mode: "fork", entryId: "u1", from: "user" });
+      assert.equal(res.status, 200, data.error);
+      assert.equal(data.newSession, true);
+      assert.equal(data.sent, false);
+      assert.equal(data.draft, "请在 ubuntu 上安装 nginx");
+      assert.deepEqual(data.images || [], []);
+      assert.equal(data.originalUnchanged, true);
+      assert.equal(fileFingerprint(file).hash, before.hash);
+      assert.notEqual(data.snapshot.key, snapshot.key);
+      assert.equal(data.snapshot.state.sessionName, "整理会议 · 另一分支");
+      assert.equal(modelPrompts(server.envHome.log).length, 0);
+      assert.ok(commandsOf(server.envHome.log).some((row) => row.type === "fork" && row.entryId === "u1"));
+      const created = sessionFiles(folder).filter((name) => !namesBefore.has(name));
+      assert.equal(created.length, 1);
+      const newBody = readFileSync(join(folder, created[0]), "utf8");
+      assert.equal(newBody.includes("请在 ubuntu 上安装 nginx"), false);
+      assert.equal(newBody.includes("已经装好了"), false);
+      const original = readFileSync(file, "utf8");
+      assert.equal(original.includes("请在 ubuntu 上安装 nginx"), true);
+      assert.equal(original.includes("已经装好了"), true);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it("preserves images in a user-fork draft and leaves them in the original session", async () => {
+    const server = await startServer();
+    try {
+      const folder = isolatedSessionDir(server);
+      const records = sample("img-fork", "带图");
+      const user = records.find((item) => item.id === "u1");
+      user.message = {
+        role: "user",
+        content: [
+          { type: "text", text: "请看这张图" },
+          { type: "image", mimeType: "image/png", data: "QUFB" },
+        ],
+      };
+      const file = writeJsonl(folder, "img-fork.jsonl", records);
+      const before = fileFingerprint(file);
+      const namesBefore = new Set(sessionFiles(folder));
+      const { res, data } = await openAndBranch(server, file, { mode: "fork", entryId: "u1", from: "user" });
+      assert.equal(res.status, 200, data.error);
+      assert.equal(data.sent, false);
+      assert.equal(data.draft, "请看这张图");
+      assert.equal((data.images || []).length, 1);
+      assert.equal(data.images[0].data, "QUFB");
+      assert.equal(data.images[0].mimeType, "image/png");
+      assert.equal(data.originalUnchanged, true);
+      assert.equal(fileFingerprint(file).hash, before.hash);
+      assert.equal(modelPrompts(server.envHome.log).length, 0);
+      const created = sessionFiles(folder).filter((name) => !namesBefore.has(name));
+      assert.equal(created.length, 1);
+      const newBody = readFileSync(join(folder, created[0]), "utf8");
+      assert.equal(newBody.includes("请看这张图"), false);
+      assert.equal(newBody.includes("QUFB"), false);
+      const original = readFileSync(file, "utf8");
+      assert.equal(original.includes("请看这张图"), true);
+      assert.equal(original.includes("QUFB"), true);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it("clones the complete active branch including the last reply, with an empty draft", async () => {
+    const server = await startServer();
+    try {
+      const folder = isolatedSessionDir(server);
+      const file = writeJsonl(folder, "clone-ok.jsonl", sample("clone-ok", "整理会议"));
+      const before = fileFingerprint(file);
+      const namesBefore = new Set(sessionFiles(folder));
+      const { res, data, snapshot } = await openAndBranch(server, file, { mode: "clone", entryId: "u1", from: "assistant" });
+      assert.equal(res.status, 200, data.error);
+      assert.equal(data.newSession, true);
+      assert.equal(data.sent, false);
+      assert.equal(data.draft, "");
+      assert.deepEqual(data.images || [], []);
+      assert.equal(data.originalUnchanged, true);
+      assert.equal(fileFingerprint(file).hash, before.hash);
+      assert.notEqual(data.snapshot.key, snapshot.key);
+      assert.equal(data.snapshot.state.sessionName, "整理会议 · 另一分支");
+      assert.equal(modelPrompts(server.envHome.log).length, 0);
+      assert.ok(commandsOf(server.envHome.log).some((row) => row.type === "clone"));
+      const created = sessionFiles(folder).filter((name) => !namesBefore.has(name));
+      assert.equal(created.length, 1);
+      const newBody = readFileSync(join(folder, created[0]), "utf8");
+      assert.equal(newBody.includes("请在 ubuntu 上安装 nginx"), true);
+      assert.equal(newBody.includes("已经装好了"), true);
+      const original = readFileSync(file, "utf8");
+      assert.equal(original.includes("已经装好了"), true);
+      assert.ok(data.snapshot.sessionFile);
+      assert.notEqual(data.snapshot.sessionFile, file);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it("rejects a stale clone after a new user message, without creating a branch", async () => {
+    const server = await startServer();
+    try {
+      const folder = isolatedSessionDir(server);
+      const file = writeJsonl(folder, "clone-stale.jsonl", sample("clone-stale", "整理会议"));
+      const opened = await fetch(server.base + "/api/session/open", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ file }),
+      });
+      const snapshot = await opened.json();
+      assert.equal(opened.status, 200, snapshot.error);
+      const namesBeforeChat = new Set(sessionFiles(folder));
+      const chat = await fetch(server.base + "/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key: snapshot.key, message: "再问一句" }),
+      });
+      assert.equal(chat.status, 200, await chat.text());
+      const afterChat = fileFingerprint(file);
+      const namesAfterChat = new Set(sessionFiles(folder));
+      const res = await fetch(server.base + "/api/session/branch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ file, key: snapshot.key, mode: "clone", entryId: "u1", from: "assistant" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      assert.equal(res.status, 409, data.error || "expected stale clone");
+      assert.equal(data.code, "stale_leaf");
+      assert.match(data.error, /请等这轮回复完成后再创建分支|已经继续|无法创建分支/);
+      assert.equal(fileFingerprint(file).hash, afterChat.hash);
+      const created = sessionFiles(folder).filter((name) => !namesAfterChat.has(name));
+      assert.equal(created.length, 0);
+      assert.equal(namesAfterChat.size, namesBeforeChat.size);
+      assert.equal(commandsOf(server.envHome.log).some((row) => row.type === "clone"), false);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it("rejects a clone that still points at an earlier turn after a later reply exists", async () => {
+    const server = await startServer();
+    try {
+      const folder = isolatedSessionDir(server);
+      const file = writeJsonl(folder, "clone-old-turn.jsonl", sample("clone-old-turn", "整理会议", [
+        {
+          type: "message",
+          id: "u2",
+          parentId: "a1",
+          timestamp: "2026-01-01T00:00:03.000Z",
+          message: { role: "user", content: "再问一句" },
+        },
+        {
+          type: "message",
+          id: "a2",
+          parentId: "u2",
+          timestamp: "2026-01-01T00:00:04.000Z",
+          message: { role: "assistant", content: "这是后一轮回复" },
+        },
+      ]));
+      const before = fileFingerprint(file);
+      const namesBefore = new Set(sessionFiles(folder));
+      const { res, data } = await openAndBranch(server, file, { mode: "clone", entryId: "u1", from: "assistant" });
+      assert.equal(res.status, 409, data.error || "expected stale clone");
+      assert.equal(data.code, "stale_leaf");
+      assert.match(data.error, /已经继续/);
+      assert.equal(fileFingerprint(file).hash, before.hash);
+      const created = sessionFiles(folder).filter((name) => !namesBefore.has(name));
+      assert.equal(created.length, 0);
+      assert.equal(commandsOf(server.envHome.log).some((row) => row.type === "clone"), false);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it("refuses a running, compacting, or waiting clone without aborting the original task", async () => {
+    async function withServer(extraEnv, filename, title, expect) {
+      const isolated = await startServer({ env: extraEnv });
+      try {
+        const folder = isolatedSessionDir(isolated);
+        mkdirSync(folder, { recursive: true });
+        const file = writeJsonl(folder, filename, sample(filename.replace(/\.jsonl$/, ""), title));
+        const before = fileFingerprint(file);
+        const namesBefore = new Set(sessionFiles(folder));
+        const { res, data } = await openAndBranch(isolated, file, { mode: "clone", entryId: "u1", from: "assistant" });
+        assert.equal(res.status, 409, data.error || "expected busy");
+        assert.equal(data.code, "busy");
+        assert.match(data.error, expect);
+        assert.equal(fileFingerprint(file).hash, before.hash);
+        assert.equal(modelPrompts(isolated.envHome.log).length, 0);
+        assert.equal(commandsOf(isolated.envHome.log).some((row) => row.type === "clone"), false);
+        const created = sessionFiles(folder).filter((name) => !namesBefore.has(name));
+        assert.equal(created.length, 0);
+      } finally {
+        await isolated.stop();
+      }
+    }
+    await withServer({ FAKEPI_IS_STREAMING: "1" }, "clone-busy.jsonl", "进行中", /进行/);
+    await withServer({ FAKEPI_IS_COMPACTING: "1" }, "clone-compact.jsonl", "压缩中", /进行/);
+    await withServer({ FAKEPI_PENDING_UI: "1" }, "clone-wait.jsonl", "等确认", /确认/);
   });
 });
