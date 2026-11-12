@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
-import { escapeHtml, parseSkillBlock, renderMarkdown } from "../../public/js/markdown.js";
+import { escapeHtml, parseAttachmentBlock, parseSkillBlock, renderMarkdown } from "../../public/js/markdown.js";
 import {
   PHASE,
   connectionLabel,
@@ -669,6 +669,7 @@ export function loadApp({ fetch: fetchImpl } = {}) {
     renderMarkdown,
     escapeHtml,
     parseSkillBlock,
+    parseAttachmentBlock,
     PHASE,
     connectionLabel,
     createTaskState,
@@ -722,7 +723,7 @@ export function loadApp({ fetch: fetchImpl } = {}) {
   if (app.el && app.el.messages && !app.el.messages.parentNode) {
     document.body.appendChild(app.el.messages);
   }
-  return { ...app, document, window, localStorage, fetchCalls: calls, trace: document.trace };
+  return { ...app, document, window, localStorage, navigator: context.navigator, fetchCalls: calls, trace: document.trace };
 }
 
 /** Minimal fetch Response for app.js api(). */

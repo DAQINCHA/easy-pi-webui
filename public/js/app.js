@@ -1,4 +1,4 @@
-import { renderMarkdown, escapeHtml, parseSkillBlock } from "./markdown.js";
+import { renderMarkdown, escapeHtml, parseSkillBlock, parseAttachmentBlock } from "./markdown.js";
 import {
   PHASE,
   connectionLabel,
@@ -103,6 +103,8 @@ const state = {
   procOpen: new Map(),
   // skill 折叠块的展开状态，键是用户消息序号。
   skillOpen: new Map(),
+  // 附件说明块里「路径」详情的展开状态，键是用户消息序号。
+  attachOpen: new Map(),
   openThink: false,
   attachments: [],
   filter: "",
@@ -1512,6 +1514,30 @@ function setForkButtonsBusy(busy) {
   }
 }
 
+function attachmentHtml(files, key) {
+  const open = state.attachOpen.get(key) === true;
+  let html =
+    '<div class="attach-block' + (open ? " open" : "") + '" data-attach-key="' + escapeHtml(key) + '">';
+  for (const file of files) {
+    html +=
+      '<div class="attach-file-row">' +
+      '<span class="attach-file-label">附件</span>' +
+      '<a class="attach-file-name ws-file" href="' + escapeHtml(fileApiUrl(file.path, "download")) + '" data-ws-file="' + escapeHtml(file.path) + '">' +
+      escapeHtml(file.name) +
+      "</a>" +
+      "</div>";
+  }
+  html +=
+    '<button class="attach-file-toggle" type="button" data-attach-toggle aria-expanded="' + (open ? "true" : "false") + '">' +
+    '<span class="attach-file-hint">' + (open ? "收起路径" : "路径") + "</span>" +
+    "</button>" +
+    '<pre class="attach-file-paths"' + (open ? "" : " hidden") + ">" +
+    escapeHtml(files.map((file) => file.path + (file.note ? "（" + file.note + "）" : "")).join("\n")) +
+    "</pre>" +
+    "</div>";
+  return html;
+}
+
 function userNode(message, index, ctx = {}) {
   const node = document.createElement("div");
   node.className = "msg user";
@@ -1521,6 +1547,8 @@ function userNode(message, index, ctx = {}) {
   const skill = parseSkillBlock(text);
   const skillKey = typeof index === "number" ? String(index) : "";
   const skillOpen = Boolean(skill) && state.skillOpen.get(skillKey) === true;
+  const skillAttachments = skill && skill.userMessage ? parseAttachmentBlock(skill.userMessage) : null;
+  const attachments = skill ? null : parseAttachmentBlock(text);
   let html = '<div class="bubble">';
   if (images.length) {
     html += '<div class="images">';
@@ -1539,12 +1567,21 @@ function userNode(message, index, ctx = {}) {
       "</button>" +
       '<pre class="skill-body"' + (skillOpen ? "" : " hidden") + ">" + escapeHtml(skill.content) + "</pre>" +
       "</div>";
-    if (skill.userMessage) html += '<div class="skill-user-text">' + escapeHtml(skill.userMessage) + "</div>";
+    if (skillAttachments) {
+      html += attachmentHtml(skillAttachments.files, skillKey);
+      if (skillAttachments.text) html += '<div class="skill-user-text">' + escapeHtml(skillAttachments.text) + "</div>";
+    } else if (skill.userMessage) {
+      html += '<div class="skill-user-text">' + escapeHtml(skill.userMessage) + "</div>";
+    }
+  } else if (attachments) {
+    html += attachmentHtml(attachments.files, skillKey);
+    if (attachments.text) html += '<div class="attach-user-text">' + escapeHtml(attachments.text) + "</div>";
   } else if (text) {
     html += escapeHtml(text);
   }
   html += "</div>";
   node.innerHTML = html;
+  if (skillAttachments || attachments) node.__copyText = text;
   const foot = document.createElement("div");
   foot.className = "msg-foot";
   let footHtml = '<button class="action" type="button" data-act="copy-user" aria-label="复制内容">' + ICON("copy") + "复制内容</button>";
@@ -2215,6 +2252,7 @@ function applySnapshot(snapshot, seq = nextSessionsSeq()) {
   state.toolOpen.clear();
   state.procOpen.clear();
   state.skillOpen.clear();
+  state.attachOpen.clear();
   if (switched) {
     for (const item of state.attachments) {
       if (item && item.abort) item.abort.abort();
@@ -4534,6 +4572,24 @@ function bindEvents() {
       return;
     }
 
+    const attachToggle = event.target.closest("[data-attach-toggle]");
+    if (attachToggle) {
+      const block = attachToggle.closest(".attach-block");
+      const paths = block.querySelector(".attach-file-paths");
+      const open = paths.hidden;
+      paths.hidden = !open;
+      block.classList.toggle("open", open);
+      attachToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      const hint = attachToggle.querySelector(".attach-file-hint");
+      if (hint) hint.textContent = open ? "收起路径" : "路径";
+      const key = block.getAttribute("data-attach-key");
+      if (key) {
+        if (open) state.attachOpen.set(key, true);
+        else state.attachOpen.delete(key);
+      }
+      return;
+    }
+
     const skillToggle = event.target.closest("[data-skill-toggle]");
     if (skillToggle) {
       const block = skillToggle.closest(".skill-invoke");
@@ -4585,7 +4641,8 @@ function bindEvents() {
       } else {
         for (const child of node.querySelectorAll(".body > .markdown")) parts.push(child.innerText);
       }
-      const text = parts.join("\n").trim();
+      // 附件块命中时 __copyText 就是原始正文，按字节保留（含首尾空白）。
+      const text = typeof node.__copyText === "string" ? node.__copyText : parts.join("\n").trim();
       if (text) {
         navigator.clipboard.writeText(text).then(
           () => toast("已复制"),

@@ -27,6 +27,106 @@ export function parseSkillBlock(text) {
   };
 }
 
+// app.js appendAttachmentContext 生成的附件说明块。只认这两个精确表头，
+// 且整块必须位于消息末尾、围栏代码之外、每一行都符合 saveUpload 的命名关系。
+const ATTACHMENT_HEADERS = [
+  "请读取以下附件（文件已保存，请用工具打开下面提供的绝对路径；不要假设文件内容已经贴在消息里）：",
+  "请读取以下附件（文件已保存到工作目录，请用工具打开这些路径；不要假设文件内容已经贴在消息里）：",
+];
+
+// 只有 lib/files.js classifyFile 会写入这两条固定说明，其他括号内容属于文件名/路径。
+const ATTACHMENT_NOTES = [
+  "本界面不能解析 PDF / Office 等内容，需要 pi 用工具读取，或下载后用本机应用打开。",
+  "此格式可能包含可执行内容，预览只显示文本，不会在页面里运行。",
+];
+
+// 与 lib/files.js 的 MAX_ATTACHMENTS 保持一致；超过这个数量就不是本界面生成的块。
+const MAX_ATTACHMENT_FILES = 6;
+
+function attachmentFenceOpen(text) {
+  let open = null;
+  for (const line of String(text).split("\n")) {
+    const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (!open) {
+      if (match) open = { char: match[1][0], length: match[1].length };
+    } else if (
+      match &&
+      match[1][0] === open.char &&
+      match[1].length >= open.length &&
+      !match[2].trim()
+    ) {
+      open = null;
+    }
+  }
+  return Boolean(open);
+}
+
+function parseAttachmentLine(line) {
+  if (!line.startsWith("- ")) return null;
+  const rest = line.slice(2);
+  let name = "";
+  let path = "";
+  // 文件名和路径都可能含中文冒号；只接受右侧立刻是绝对路径的那个分隔符。
+  for (let at = rest.indexOf("："); at >= 0; at = rest.indexOf("：", at + 1)) {
+    const candidate = rest.slice(at + 1);
+    if (/^(?:\/|\\\\|[A-Za-z]:[\\/])/.test(candidate)) {
+      name = rest.slice(0, at);
+      path = candidate;
+      break;
+    }
+  }
+  if (!name || !path || /[\r\n]/.test(path)) return null;
+
+  let note = "";
+  for (const known of ATTACHMENT_NOTES) {
+    const wrapped = "（" + known + "）";
+    if (path.endsWith(wrapped)) {
+      note = known;
+      path = path.slice(0, -wrapped.length);
+      break;
+    }
+  }
+  if (!path) return null;
+
+  // saveUpload: <base36 timestamp>-<8 hex>-<display filename>
+  const base = path.split(/[\\/]/).pop() || "";
+  const match = base.match(/^[0-9a-z]+-[0-9a-f]{8}-(.+)$/);
+  if (!match || match[1] !== name) return null;
+  return { name, path, note };
+}
+
+function parseAttachmentAt(text, index, header) {
+  if (index > 0 && text.slice(index - 2, index) !== "\n\n") return null;
+  if (attachmentFenceOpen(text.slice(0, index))) return null;
+  const rest = text.slice(index + header.length);
+  if (!rest.startsWith("\n")) return null;
+  const lines = rest.slice(1).split("\n");
+  if (!lines.length || lines.some((line) => !line)) return null;
+  const files = [];
+  for (const line of lines) {
+    const file = parseAttachmentLine(line);
+    if (!file) return null;
+    files.push(file);
+  }
+  if (!files.length || files.length > MAX_ATTACHMENT_FILES) return null;
+  return { text: index > 0 ? text.slice(0, index - 2) : "", files };
+}
+
+export function parseAttachmentBlock(text) {
+  const value = String(text || "");
+  for (const header of ATTACHMENT_HEADERS) {
+    let index = value.lastIndexOf(header);
+    while (index >= 0) {
+      const parsed = parseAttachmentAt(value, index, header);
+      if (parsed) return parsed;
+      // 命中 0 时 lastIndexOf(header, -1) 会再次返回 0；必须显式停下。
+      if (index === 0) break;
+      index = value.lastIndexOf(header, index - 1);
+    }
+  }
+  return null;
+}
+
 function safeUrl(url) {
   return /^(https?:|mailto:)/i.test(url) || url.startsWith("/") || url.startsWith("#");
 }
