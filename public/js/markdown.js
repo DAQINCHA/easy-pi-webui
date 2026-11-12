@@ -6,6 +6,27 @@ export function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => ESCAPES[ch]);
 }
 
+// pi 展开 /skill:name 后写入会话的精确信封（见 pi 公开源码
+// dist/core/agent-session.js 的 parseSkillBlock / _expandSkillCommand）。
+// 只认这个完整形状，未知或残缺的 XML 一律原样显示。
+const SKILL_BLOCK_RE = /^<skill name="([^"\n]+)" location="([^"\n]+)">\nReferences are relative to ([^\n]+)\.\n\n([\s\S]*?)\n<\/skill>(?:\n\n([\s\S]+))?$/;
+
+export function parseSkillBlock(text) {
+  const match = String(text || "").match(SKILL_BLOCK_RE);
+  if (!match) return null;
+  const name = match[1].trim();
+  const location = match[2].trim();
+  const baseDir = location.slice(0, location.lastIndexOf("/"));
+  if (!name || !location || !baseDir) return null;
+  if (match[3] !== baseDir) return null;
+  return {
+    name,
+    location,
+    content: match[4],
+    userMessage: match[5] || undefined,
+  };
+}
+
 function safeUrl(url) {
   return /^(https?:|mailto:)/i.test(url) || url.startsWith("/") || url.startsWith("#");
 }

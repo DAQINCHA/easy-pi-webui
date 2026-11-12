@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
-import { escapeHtml, renderMarkdown } from "../../public/js/markdown.js";
+import { escapeHtml, parseSkillBlock, renderMarkdown } from "../../public/js/markdown.js";
 import {
   PHASE,
   connectionLabel,
@@ -668,6 +668,7 @@ export function loadApp({ fetch: fetchImpl } = {}) {
     console,
     renderMarkdown,
     escapeHtml,
+    parseSkillBlock,
     PHASE,
     connectionLabel,
     createTaskState,

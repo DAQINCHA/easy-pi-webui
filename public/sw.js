@@ -10,7 +10,7 @@
  *   新版本不用等所有标签页关掉才生效。
  */
 
-const CACHE_NAME = "pi-webui-v29";
+const CACHE_NAME = "pi-webui-v31";
 
 // 只预缓存外壳。图标/logo/manifest 一起带上，断网时至少界面完整。
 const SHELL_ASSETS = [

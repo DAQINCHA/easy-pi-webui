@@ -1,4 +1,4 @@
-import { renderMarkdown, escapeHtml } from "./markdown.js";
+import { renderMarkdown, escapeHtml, parseSkillBlock } from "./markdown.js";
 import {
   PHASE,
   connectionLabel,
@@ -101,6 +101,8 @@ const state = {
   toolOpen: new Map(),
   // 过程组（相邻思考/工具）的展开状态，键是 "m<消息序号>:g<组序号>"。
   procOpen: new Map(),
+  // skill 折叠块的展开状态，键是用户消息序号。
+  skillOpen: new Map(),
   openThink: false,
   attachments: [],
   filter: "",
@@ -1516,6 +1518,9 @@ function userNode(message, index, ctx = {}) {
   if (typeof index === "number") node.dataset.userIndex = String(index);
   const images = imageBlocks(message);
   const text = textOf(message);
+  const skill = parseSkillBlock(text);
+  const skillKey = typeof index === "number" ? String(index) : "";
+  const skillOpen = Boolean(skill) && state.skillOpen.get(skillKey) === true;
   let html = '<div class="bubble">';
   if (images.length) {
     html += '<div class="images">';
@@ -1524,7 +1529,20 @@ function userNode(message, index, ctx = {}) {
     }
     html += "</div>";
   }
-  if (text) html += escapeHtml(text);
+  if (skill) {
+    html +=
+      '<div class="skill-invoke' + (skillOpen ? " open" : "") + '" data-skill-key="' + escapeHtml(skillKey) + '" data-skill-name="' + escapeHtml(skill.name) + '">' +
+      '<button class="skill-head" type="button" data-skill-toggle aria-expanded="' + (skillOpen ? "true" : "false") + '">' +
+      '<span class="skill-label">skill</span>' +
+      '<span class="skill-name">' + escapeHtml(skill.name) + "</span>" +
+      '<span class="skill-hint">' + (skillOpen ? "收起" : "展开") + "</span>" +
+      "</button>" +
+      '<pre class="skill-body"' + (skillOpen ? "" : " hidden") + ">" + escapeHtml(skill.content) + "</pre>" +
+      "</div>";
+    if (skill.userMessage) html += '<div class="skill-user-text">' + escapeHtml(skill.userMessage) + "</div>";
+  } else if (text) {
+    html += escapeHtml(text);
+  }
   html += "</div>";
   node.innerHTML = html;
   const foot = document.createElement("div");
@@ -2196,6 +2214,7 @@ function applySnapshot(snapshot, seq = nextSessionsSeq()) {
   state.toolLive.clear();
   state.toolOpen.clear();
   state.procOpen.clear();
+  state.skillOpen.clear();
   if (switched) {
     for (const item of state.attachments) {
       if (item && item.abort) item.abort.abort();
@@ -4512,6 +4531,24 @@ function bindEvents() {
       body.hidden = !open;
       card.classList.toggle("open", open);
       state.toolOpen.set(card.getAttribute("data-tool-id"), open);
+      return;
+    }
+
+    const skillToggle = event.target.closest("[data-skill-toggle]");
+    if (skillToggle) {
+      const block = skillToggle.closest(".skill-invoke");
+      const body = block.querySelector(".skill-body");
+      const open = body.hidden;
+      body.hidden = !open;
+      block.classList.toggle("open", open);
+      skillToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      const hint = skillToggle.querySelector(".skill-hint");
+      if (hint) hint.textContent = open ? "收起" : "展开";
+      const key = block.getAttribute("data-skill-key");
+      if (key) {
+        if (open) state.skillOpen.set(key, true);
+        else state.skillOpen.delete(key);
+      }
       return;
     }
 
