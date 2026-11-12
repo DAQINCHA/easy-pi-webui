@@ -275,12 +275,18 @@ function handle(record) {
     case "set_thinking_level":
       sessionThinking = record.level || record.thinkingLevel || sessionThinking;
       return reply(id, {});
-    case "set_session_name":
+    case "set_session_name": {
       sessionName = record.name || sessionName;
       if (sessionFile && record.name) {
         try { appendFileSync(sessionFile, JSON.stringify({ type: "session_info", name: record.name }) + "\n"); } catch { /* ignore */ }
       }
-      return reply(id, {});
+      // Match official pi: the event is emitted before the command response.
+      event({ type: "session_info_changed", name: sessionName });
+      const delay = Number(process.env.FAKEPI_SET_NAME_DELAY_MS || 0);
+      if (delay > 0) setTimeout(() => reply(id, {}), delay);
+      else reply(id, {});
+      return;
+    }
     case "compact":
       return reply(id, { disposition: "started" });
     default:

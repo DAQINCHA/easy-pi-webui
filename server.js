@@ -358,6 +358,9 @@ function wire(bridge) {
       const dialog = ["select", "confirm", "input", "editor"].includes(record.method);
       if (dialog) bridge.pendingUi.set(record.id, record);
     }
+    // pi emits this before the set_session_name response; invalidate here so a
+    // refresh triggered by the event cannot read the previous list from cache.
+    if (record.type === "session_info_changed") sessionCache.at = 0;
     broadcast(bridge, record, seq);
 
     if (record.type === "agent_settled") {

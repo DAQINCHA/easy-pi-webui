@@ -84,6 +84,11 @@ const state = {
   model: null,
   thinkingLevel: "off",
   sessionName: "",
+  // 会话标题的最近一次明确来源（改名响应 / session_info_changed / 快照）。
+  // 列表刷新是异步的，旧列表或旧快照不能把刚更新的标题盖回去。
+  sessionNames: new Map(),
+  sessionsSeq: 0,
+  sessionsAppliedSeq: 0,
   stats: {},
   streaming: false,
   compacting: false,
@@ -267,6 +272,48 @@ function sessionTitle() {
     if (flat) return flat.length > 42 ? flat.slice(0, 42) + "…" : flat;
   }
   return "新对话";
+}
+
+// 列表 / 快照 / 事件是三条异步来源。用单调序号记住每个文件最近一次
+// 明确的标题，刷新回来的旧列表只能补数据，不能把新标题覆盖掉。
+function nextSessionsSeq() {
+  state.sessionsSeq += 1;
+  return state.sessionsSeq;
+}
+
+function rememberSessionName(file, name, seq = nextSessionsSeq()) {
+  if (!file) return String(name || "");
+  const value = String(name || "");
+  const existing = state.sessionNames.get(file);
+  // 空标题不是“明确来源”：快照/列表里暂时没有名字时，不能把
+  // 未命名会话锁死，也不能覆盖已经存在的明确标题。
+  if (!value) return existing ? existing.name : "";
+  if (existing && existing.seq > seq) return existing.name;
+  state.sessionNames.set(file, { name: value, seq });
+  const entry = state.sessions.find((session) => session.file === file);
+  if (entry) entry.name = value;
+  const hit = ((state.search && state.search.results) || []).find((item) => item.file === file);
+  if (hit) hit.name = value;
+  return value;
+}
+
+function applySessionList(list) {
+  if (!Array.isArray(list)) return state.sessions;
+  return list.map((session) => {
+    if (!session || !session.file) return session;
+    const known = state.sessionNames.get(session.file);
+    return known ? { ...session, name: known.name } : session;
+  });
+}
+
+function sessionFileForKey(key) {
+  if (!key) return null;
+  if (key === state.key) return state.file;
+  const id = String(key).replace(/^s:/, "");
+  const hit = state.sessions.find((session) => session.id === id);
+  if (hit) return hit.file;
+  const result = ((state.search && state.search.results) || []).find((item) => item.id === id);
+  return result ? result.file : null;
 }
 
 function shortenPath(path) {
@@ -808,6 +855,9 @@ async function resetToWorkspace(data) {
   state.model = null;
   state.thinkingLevel = "off";
   state.sessionName = "";
+  state.sessionNames.clear();
+  // 切换工作区后，丢弃切换前发出、还没回来的列表响应。
+  state.sessionsAppliedSeq = nextSessionsSeq();
   state.stats = {};
   state.streaming = false;
   state.queue = 0;
@@ -821,7 +871,7 @@ async function resetToWorkspace(data) {
   state.toolLive.clear();
   state.toolOpen.clear();
 
-  state.sessions = data.sessions || [];
+  state.sessions = applySessionList(data.sessions || []);
   state.task = createTaskState();
   state.turnFiles = new Map();
   state.turnSummary = null;
@@ -1959,10 +2009,12 @@ function addNotice(text) {
 /* session lifecycle                                                   */
 /* ------------------------------------------------------------------ */
 
-function applySnapshot(snapshot) {
+function applySnapshot(snapshot, seq = nextSessionsSeq()) {
   const switched = state.key !== snapshot.key;
+  const sameSession = !switched && state.file === (snapshot.sessionFile || null);
   state.key = snapshot.key;
-  state.file = snapshot.sessionFile || null;
+  const file = snapshot.sessionFile || null;
+  state.file = file;
   state.workspace = snapshot.workspace || state.workspace;
   state.messages = (snapshot.messages || []).filter((message) => message.role !== "system");
   state.forkMessages = snapshot.forkMessages || [];
@@ -1972,7 +2024,13 @@ function applySnapshot(snapshot) {
   state.stats = snapshot.stats || {};
   state.model = snapshot.state && snapshot.state.model ? snapshot.state.model : null;
   state.thinkingLevel = (snapshot.state && snapshot.state.thinkingLevel) || "off";
-  state.sessionName = (snapshot.state && snapshot.state.sessionName) || "";
+  const snapshotName = (snapshot.state && snapshot.state.sessionName) || "";
+  const known = file ? state.sessionNames.get(file) : null;
+  // 旧快照（比已应用的列表还旧）不能把当前标题改回旧值。
+  const stale = sameSession && seq < state.sessionsAppliedSeq;
+  // 空快照标题不能覆盖明确标题，也不写进 sessionNames。
+  if (known && (known.seq > seq || !snapshotName)) state.sessionName = known.name;
+  else if (!stale) state.sessionName = snapshotName;
   state.streaming = Boolean(snapshot.state && snapshot.state.isStreaming);
   state.compacting = Boolean(snapshot.state && snapshot.state.isCompacting);
   if (!state.streaming) state.live = null;
@@ -1997,7 +2055,11 @@ function applySnapshot(snapshot) {
   dispatchTask({ type: "__connection", status: "open" });
   dispatchTask({ type: "__hydrate", snapshot });
   syncTurnFilesFromTask();
-  state.sessions = snapshot.sessions || state.sessions;
+  if (file && !stale && snapshotName) rememberSessionName(file, state.sessionName, seq);
+  if (Array.isArray(snapshot.sessions) && seq >= state.sessionsAppliedSeq) {
+    state.sessionsAppliedSeq = seq;
+    state.sessions = applySessionList(snapshot.sessions);
+  }
 
   if (state.file) {
     try {
@@ -2020,8 +2082,9 @@ function applySnapshot(snapshot) {
 }
 
 async function openSession(file) {
+  const seq = nextSessionsSeq();
   const snapshot = await api("/api/session/open", { file });
-  applySnapshot(snapshot);
+  applySnapshot(snapshot, seq);
   connectStream();
   markSeen(true);
 }
@@ -2031,8 +2094,9 @@ async function newSession() {
     openWorkspacePicker();
     return;
   }
+  const seq = nextSessionsSeq();
   const snapshot = await api("/api/session/new", {});
-  applySnapshot(snapshot);
+  applySnapshot(snapshot, seq);
   connectStream();
   markSeen(true);
   el.input.focus();
@@ -2120,9 +2184,10 @@ async function markSeen(force = false) {
 
 async function resync() {
   if (!state.key) return;
+  const seq = nextSessionsSeq();
   try {
     const snapshot = await api("/api/session/snapshot", { key: state.key });
-    applySnapshot(snapshot);
+    applySnapshot(snapshot, seq);
   } catch {
     /* ignore */
   }
@@ -2271,6 +2336,7 @@ async function commitPendingEdit() {
   addOptimisticUser(message || text, images.map((image) => ({ type: "image", data: image.data, mimeType: image.mimeType })));
   state.forkBusy = true;
   setForkButtonsBusy(true);
+  const seq = nextSessionsSeq();
   try {
     const data = await api("/api/session/branch", {
       key: pending.key || state.key,
@@ -2285,7 +2351,7 @@ async function commitPendingEdit() {
     renderPendingEditHint();
     if (data.snapshot) {
       const previousKey = state.key;
-      applySnapshot(data.snapshot);
+      applySnapshot(data.snapshot, seq);
       if (data.snapshot.key !== previousKey) connectStream();
     }
     if (data.ok === false || data.sent === false) {
@@ -2306,7 +2372,7 @@ async function commitPendingEdit() {
     const data = error && error.data;
     if (data && data.snapshot) {
       const previousKey = state.key;
-      applySnapshot(data.snapshot);
+      applySnapshot(data.snapshot, seq);
       if (data.snapshot.key !== previousKey) connectStream();
     }
     if (data && data.navigated) {
@@ -2363,6 +2429,7 @@ async function runSessionBranch(mode, entryId, from) {
   }
   state.forkBusy = true;
   setForkButtonsBusy(true);
+  const seq = nextSessionsSeq();
   try {
     const data = await api("/api/session/branch", {
       key: state.key,
@@ -2373,7 +2440,7 @@ async function runSessionBranch(mode, entryId, from) {
     });
     const previousKey = state.key;
     if (data.snapshot) {
-      applySnapshot(data.snapshot);
+      applySnapshot(data.snapshot, seq);
       if (data.snapshot.key !== previousKey) connectStream();
     }
     if (mode === "retry") {
@@ -2400,7 +2467,7 @@ async function runSessionBranch(mode, entryId, from) {
     const data = error && error.data;
     if (data && data.snapshot) {
       const previousKey = state.key;
-      applySnapshot(data.snapshot);
+      applySnapshot(data.snapshot, seq);
       if (data.snapshot.key !== previousKey) connectStream();
     }
     toast(branchApiError(error, data), "error");
@@ -2604,9 +2671,21 @@ async function refreshStats() {
 }
 
 async function refreshSessions() {
+  const seq = nextSessionsSeq();
   try {
     const data = await api("/api/sessions");
-    state.sessions = data.sessions || [];
+    // 比已应用的列表更旧的响应直接丢掉：它可能把新标题盖回去。
+    if (seq < state.sessionsAppliedSeq) return;
+    state.sessionsAppliedSeq = seq;
+    state.sessions = applySessionList(data.sessions || []);
+    // 当前会话没有明确标题时，列表就是最新来源（快照已经写过明确标题）。
+    if (state.file && !state.sessionNames.has(state.file)) {
+      const active = state.sessions.find((session) => session.file === state.file);
+      if (active) {
+        state.sessionName = active.name || "";
+        updateHeader();
+      }
+    }
     renderSessions();
   } catch {
     /* ignore */
@@ -2739,8 +2818,9 @@ function handleEvent(event) {
       break;
 
     case "session_info_changed":
-      state.sessionName = event.name || "";
+      state.sessionName = rememberSessionName(state.file, event.name || "");
       updateHeader();
+      renderSessions();
       refreshSessions();
       break;
 
@@ -3745,12 +3825,17 @@ async function saveName(name, key, current) {
     toast("名字不能为空", "error");
     return;
   }
+  // 请求期间用户可能已经切到别的会话：文件/是否当前会话都要在 await 前定下来。
+  const wasCurrent = Boolean(current) && state.key === key;
+  const file = wasCurrent ? state.file : sessionFileForKey(key);
   try {
     await api("/api/rename", { key, name });
-    if (current) {
-      state.sessionName = name;
+    const value = rememberSessionName(file, name);
+    if (wasCurrent && state.key === key) {
+      state.sessionName = value;
       updateHeader();
     }
+    renderSessions();
     refreshSessions();
     toast("已重命名");
   } catch (error) {
@@ -4484,7 +4569,7 @@ async function boot() {
     state.needsWorkspace = Boolean(bootstrap.needsWorkspace);
     state.workspaceError = bootstrap.workspaceError || "";
     state.piVersion = bootstrap.piVersion || "";
-    state.sessions = bootstrap.sessions || [];
+    state.sessions = applySessionList(bootstrap.sessions || []);
     if (state.workspace) rememberWorkspace(state.workspace);
     updateWorkspace();
     updateWorkspaceGate();
