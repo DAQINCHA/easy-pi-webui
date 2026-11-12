@@ -118,6 +118,19 @@ describe("sidebar session actions and list scrollbar", () => {
 
     const pinOnSelected = winningProp(["in-active-wrap", "pin", "on"], true, false, "color");
     assert.equal(pinOnSelected.color, "#111111");
+
+    const unselectedBg = winningProp([], true, false, "background");
+    assert.match(unselectedBg.background, /var\(--bg-hover\)/);
+    const grouped = CSS.match(/\.session-action:hover[^{]*\{([^}]*)\}/);
+    assert.ok(grouped, "missing .session-action:hover rule");
+    assert.match(grouped[1], /background:\s*var\(--bg-hover\)/);
+    assert.match(grouped[1], /color:\s*#111111/);
+    assert.doesNotMatch(grouped[1], /border-color:\s*var\(--ink\)/);
+    assert.doesNotMatch(grouped[1], /border:\s*[^;]*var\(--ink\)/);
+    const base = CSS.match(/(?:^|\n)\.session-action\s*\{([^}]*)\}/);
+    assert.ok(base, "missing .session-action rule");
+    assert.doesNotMatch(base[1], /border\s*:/);
+    assert.doesNotMatch(base[1], /border-color\s*:/);
   });
 
   it("makes active-session actions visible at rest and still hides running-session actions", () => {

@@ -3928,14 +3928,36 @@ function resolvedTheme(mode) {
   return mode === "light" ? "light" : "dark";
 }
 
+const THEME_CYCLE = ["light", "dark", "system"];
+const THEME_LABELS = { light: "浅色", dark: "深色", system: "跟随系统" };
+
+function themePreference(mode) {
+  return mode === "light" || mode === "system" ? mode : "dark";
+}
+
+function nextTheme(mode) {
+  const current = themePreference(mode);
+  return THEME_CYCLE[(THEME_CYCLE.indexOf(current) + 1) % THEME_CYCLE.length];
+}
+
+function themeButtonCopy(mode) {
+  const current = themePreference(mode);
+  return "外观：" + THEME_LABELS[current] + "，点击切换为" + THEME_LABELS[nextTheme(current)];
+}
+
 function applyTheme(mode) {
-  const next = mode === "light" || mode === "system" ? mode : "dark";
+  const next = themePreference(mode);
   const resolved = resolvedTheme(next);
   document.documentElement.dataset.theme = resolved;
   document.documentElement.dataset.mode = next;
-  const label = next === "system" ? "跟随系统" : next === "dark" ? "深色" : "浅色";
-  el.themeBtn.title = "外观：" + label;
-  el.themeBtn.setAttribute("aria-label", "外观：" + label);
+  const copy = themeButtonCopy(next);
+  if (el.themeBtn) {
+    el.themeBtn.title = copy;
+    el.themeBtn.setAttribute("aria-label", copy);
+    el.themeBtn.removeAttribute("aria-haspopup");
+    el.themeBtn.removeAttribute("aria-expanded");
+    el.themeBtn.removeAttribute("aria-controls");
+  }
   try {
     localStorage.setItem("piwebui.theme", next);
   } catch {
@@ -3945,17 +3967,8 @@ function applyTheme(mode) {
   if (meta) meta.setAttribute("content", resolved === "dark" ? "#000000" : "#ffffff");
 }
 
-function openThemeMenu(anchor) {
-  const current = document.documentElement.dataset.mode || "dark";
-  openMenu(
-    anchor,
-    [
-      { label: "浅色", icon: "sun", active: current === "light", onClick: () => applyTheme("light") },
-      { label: "深色", icon: "moon", active: current === "dark", onClick: () => applyTheme("dark") },
-      { label: "跟随系统", icon: "monitor", active: current === "system", onClick: () => applyTheme("system") },
-    ],
-    { align: "right" },
-  );
+function cycleTheme() {
+  applyTheme(nextTheme(document.documentElement.dataset.mode));
 }
 
 function sidebarVisible() {
@@ -4111,7 +4124,7 @@ function bindEvents() {
     syncNavToggle();
   });
 
-  el.themeBtn.addEventListener("click", () => openThemeMenu(el.themeBtn));
+  el.themeBtn.addEventListener("click", cycleTheme);
   el.notifyBtn.addEventListener("click", () => {
     toggleNotify().finally(updateNotifyBtn);
   });
