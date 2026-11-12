@@ -10,6 +10,45 @@ function safeUrl(url) {
   return /^(https?:|mailto:)/i.test(url) || url.startsWith("/") || url.startsWith("#");
 }
 
+/** Path-like hrefs in chat markdown become workspace file links (server still enforces bounds). */
+export function resolveMarkdownFileHref(href) {
+  const url = String(href || "").trim();
+  if (!url) return null;
+  if (/^(https?:|mailto:|data:|javascript:|vbscript:|blob:)/i.test(url)) return null;
+  if (url.startsWith("#")) return null;
+  if (/^\/(api|js|icons)\//.test(url) || url === "/" || url === "/index.html" || url === "/styles.css" || url === "/logo.svg" || url === "/manifest.webmanifest" || url === "/sw.js") {
+    return null;
+  }
+  let path = url;
+  if (/^file:/i.test(url)) {
+    try {
+      const parsed = new URL(url);
+      path = decodeURIComponent(parsed.pathname || "");
+      if (/^\/[A-Za-z]:/.test(path)) path = path.slice(1);
+    } catch {
+      return null;
+    }
+  }
+  if (path.startsWith("/") && path.indexOf("/", 1) === -1 && path.includes(".")) {
+    // single-segment "/styles.css"-like: treat as site path, not a file
+    return null;
+  }
+  if (!path.startsWith("/") && !path.startsWith("./") && !path.startsWith("../") && !/^[A-Za-z]:[\\/]/.test(path)) {
+    // relative "foo.md" or "out/a.pdf"
+    if (!path || /\s/.test(path)) return null;
+  }
+  return path;
+}
+
+function workspaceFileAnchor(label, path) {
+  const href = "/api/file?path=" + encodeURIComponent(path) + "&mode=download";
+  return (
+    '<a class="ws-file" href="' + escapeHtml(href) + '" data-ws-file="' + escapeHtml(path) + '">' +
+    escapeHtml(label) +
+    "</a>"
+  );
+}
+
 const JS_RE = /(?<cm>\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(?<str>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?<num>\b\d+(?:\.\d+)?\b)|(?<kw>\b(?:const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|class|extends|new|this|import|from|export|default|async|await|try|catch|finally|throw|typeof|instanceof|null|undefined|true|false|interface|type|implements|public|private|protected|static|readonly|enum|as|in|of|delete|void|yield|super|get|set)\b)/g;
 
 const PY_RE = /(?<cm>#[^\n]*)|(?<str>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?<num>\b\d+(?:\.\d+)?\b)|(?<kw>\b(?:def|class|return|if|elif|else|for|while|import|from|as|with|try|except|finally|raise|lambda|None|True|False|and|or|not|in|is|global|nonlocal|pass|break|continue|yield|async|await|assert|del|match|case)\b)/g;
@@ -81,6 +120,8 @@ function inline(raw) {
   });
 
   text = text.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, url) => {
+    const filePath = resolveMarkdownFileHref(url);
+    if (filePath) return keep(workspaceFileAnchor(label, filePath));
     if (!safeUrl(url)) return label;
     return keep(
       '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(label) + "</a>",

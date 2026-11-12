@@ -206,6 +206,36 @@ function imageBlocks(message) {
   return message.content.filter((block) => block && block.type === "image");
 }
 
+function formatSize(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return value + " B";
+  if (value < 1024 * 1024) return (value / 1024).toFixed(1).replace(/\.0$/, "") + " KB";
+  return (value / (1024 * 1024)).toFixed(1).replace(/\.0$/, "") + " MB";
+}
+
+function isInlineImageFile(file) {
+  const type = String((file && file.type) || "").toLowerCase();
+  if (type === "image/svg+xml") return false;
+  if (type.startsWith("image/")) return true;
+  return /\.(png|jpe?g|gif|webp|bmp|heic|heif)$/i.test((file && file.name) || "");
+}
+
+function fileApiUrl(path, mode) {
+  return "/api/file?path=" + encodeURIComponent(path) + "&mode=" + encodeURIComponent(mode || "meta");
+}
+
+function appendAttachmentContext(text, files) {
+  if (!files.length) return text;
+  const lines = files.map((item) => {
+    const hint = item.note ? "（" + item.note + "）" : "";
+    return "- " + item.name + "：" + item.storedPath + hint;
+  });
+  const block =
+    "请读取以下附件（文件已保存到工作目录，请用工具打开这些路径；不要假设文件内容已经贴在消息里）：\n" +
+    lines.join("\n");
+  return text ? text + "\n\n" + block : block;
+}
+
 function sessionTitle() {
   if (state.sessionName) return state.sessionName;
   const first = state.messages.find((message) => message.role === "user");
@@ -592,6 +622,9 @@ async function resetToWorkspace(data) {
   state.stats = {};
   state.streaming = false;
   state.queue = 0;
+  for (const item of state.attachments) {
+    if (item && item.abort) item.abort.abort();
+  }
   state.attachments = [];
   state.live = null;
   state.optimisticEl = null;
@@ -1421,9 +1454,16 @@ function renderTurnSummary() {
   for (const file of files) {
     const row = document.createElement("div");
     row.className = "turn-file";
-    row.innerHTML =
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "turn-file-btn";
+    button.title = "预览或下载";
+    button.setAttribute("data-ws-file", file);
+    button.innerHTML =
       '<span class="turn-file-name">' + escapeHtml(basename(file) || file) + "</span>" +
       '<span class="turn-file-dir">' + escapeHtml(turnFileDir(file)) + "</span>";
+    button.addEventListener("click", () => openWorkspaceFile(file));
+    row.appendChild(button);
     list.appendChild(row);
   }
   card.appendChild(list);
@@ -1670,6 +1710,9 @@ function applySnapshot(snapshot) {
   state.toolOpen.clear();
   state.procOpen.clear();
   if (switched) {
+    for (const item of state.attachments) {
+      if (item && item.abort) item.abort.abort();
+    }
     state.attachments = [];
     renderAttachments();
   }
@@ -2325,7 +2368,16 @@ async function sendMessage() {
     }
   }
 
-  const images = state.attachments.map((item) => ({ type: "image", data: item.data, mimeType: item.mime }));
+  const pending = state.attachments.slice();
+  if (pending.some((item) => item.kind === "file" && item.status !== "ready")) {
+    toast("还有文件正在上传或失败，请处理后再发送", "error");
+    return;
+  }
+  const images = pending
+    .filter((item) => item.kind !== "file")
+    .map((item) => ({ type: "image", data: item.data, mimeType: item.mime }));
+  const files = pending.filter((item) => item.kind === "file" && item.storedPath);
+  const message = appendAttachmentContext(text, files);
   el.input.value = "";
   autosize();
   state.attachments = [];
@@ -2333,9 +2385,9 @@ async function sendMessage() {
   updateSendState();
   closeSlash();
 
-  addOptimisticUser(text, images.map((image) => ({ type: "image", data: image.data, mimeType: image.mimeType })));
+  addOptimisticUser(message || text, images.map((image) => ({ type: "image", data: image.data, mimeType: image.mimeType })));
 
-  const body = { key: state.key, message: text || "请看这张图片。" };
+  const body = { key: state.key, message: message || "请看这张图片。" };
   if (images.length) body.images = images;
   if (state.streaming) body.behavior = "steer";
 
@@ -2372,37 +2424,120 @@ function renderAttachments() {
   }
   el.attachRow.hidden = false;
   el.attachRow.innerHTML = state.attachments
-    .map(
-      (item, index) =>
-        '<div class="attach-thumb"><img src="' + item.url + '" alt=""><button type="button" data-remove="' + index + '">' +
-        ICON("x") +
-        "</button></div>",
-    )
+    .map((item, index) => {
+      if (item.kind === "file") {
+        const status =
+          item.status === "uploading" ? "上传中…" : item.status === "error" ? item.error || "上传失败" : formatSize(item.size);
+        const cls =
+          "attach-thumb attach-file" +
+          (item.status === "error" ? " is-error" : item.status === "uploading" ? " is-uploading" : "");
+        return (
+          '<div class="' + cls + '">' +
+          ICON("paperclip") +
+          '<div class="attach-meta"><span class="attach-name">' + escapeHtml(item.name || "文件") + "</span>" +
+          '<span class="attach-size">' + escapeHtml(status) + "</span></div>" +
+          '<button type="button" data-remove="' + index + '">' + ICON("x") + "</button></div>"
+        );
+      }
+      return (
+        '<div class="attach-thumb"><img src="' + item.url + '" alt="">' +
+        '<button type="button" data-remove="' + index + '">' + ICON("x") + "</button></div>"
+      );
+    })
     .join("");
   updateSendState();
 }
 
 function addFiles(files) {
-  const accepted = Array.from(files).filter((file) => file && file.type.startsWith("image/"));
-  for (const file of accepted.slice(0, 6)) {
-    if (file.size > 8 * 1024 * 1024) {
-      toast("图片过大（上限 8MB）：" + file.name, "error");
+  if (state.needsWorkspace) {
+    toast("请先选择工作目录再添加文件", "error");
+    openWorkspacePicker();
+    return;
+  }
+  const list = Array.from(files || []).filter(Boolean);
+  if (!list.length) return;
+  const room = 6 - state.attachments.length;
+  if (room <= 0) {
+    toast("一次最多添加 6 个附件", "error");
+    return;
+  }
+  if (list.length > room) toast("一次最多添加 6 个附件，已忽略多出的文件", "error");
+  for (const file of list.slice(0, room)) {
+    if (isInlineImageFile(file)) {
+      if (file.size > 8 * 1024 * 1024) {
+        toast("图片过大（上限 8MB）：" + file.name, "error");
+        continue;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result || "");
+        const comma = url.indexOf(",");
+        state.attachments.push({
+          kind: "image",
+          id: Math.random().toString(36).slice(2),
+          name: file.name || "image",
+          mime: file.type || "image/png",
+          data: comma >= 0 ? url.slice(comma + 1) : url,
+          url,
+        });
+        renderAttachments();
+      };
+      reader.readAsDataURL(file);
       continue;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = String(reader.result || "");
-      const comma = url.indexOf(",");
-      state.attachments.push({
-        id: Math.random().toString(36).slice(2),
-        name: file.name || "image",
-        mime: file.type || "image/png",
-        data: comma >= 0 ? url.slice(comma + 1) : url,
-        url,
-      });
-      renderAttachments();
+    if (file.size > 20 * 1024 * 1024) {
+      toast("文件过大（上限 20MB）：" + file.name, "error");
+      continue;
+    }
+    const item = {
+      kind: "file",
+      id: Math.random().toString(36).slice(2),
+      name: file.name || "file",
+      size: file.size,
+      status: "uploading",
+      error: "",
+      storedPath: "",
+      relativePath: "",
+      note: "",
+      abort: null,
     };
-    reader.readAsDataURL(file);
+    state.attachments.push(item);
+    renderAttachments();
+    uploadWorkspaceFile(file, item);
+  }
+}
+
+async function uploadWorkspaceFile(file, item) {
+  const controller = new AbortController();
+  item.abort = controller;
+  try {
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-filename": encodeURIComponent(file.name || "file"),
+      },
+      body: file,
+      signal: controller.signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (item.abort !== controller) return;
+    if (!res.ok) throw new Error(data.error || "上传失败");
+    item.status = "ready";
+    item.storedPath = data.path;
+    item.relativePath = data.relativePath || "";
+    item.size = data.size != null ? data.size : file.size;
+    item.note = data.note || "";
+    item.name = data.name || item.name;
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    if (item.abort !== controller) return;
+    item.status = "error";
+    item.error = error.message || "上传失败";
+    toast("上传失败：" + item.name + " — " + item.error, "error");
+  } finally {
+    if (item.abort === controller) item.abort = null;
+    renderAttachments();
   }
 }
 
@@ -2829,6 +2964,59 @@ function updateNotifyBtn() {
 /* ------------------------------------------------------------------ */
 /* modal + stats + rename                                              */
 /* ------------------------------------------------------------------ */
+
+async function openWorkspaceFile(path) {
+  if (!path) return;
+  let meta;
+  try {
+    const res = await fetch(fileApiUrl(path, "meta"));
+    meta = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(meta.error || "无法打开文件");
+  } catch (error) {
+    toast("打不开这个文件：" + error.message, "error");
+    return;
+  }
+  const downloadHref = fileApiUrl(path, "download");
+  let body = "";
+  if (meta.note) body += '<p class="file-preview-note">' + escapeHtml(meta.note) + "</p>";
+  if (meta.preview === "image") {
+    body += '<img src="' + escapeHtml(fileApiUrl(path, "preview")) + '" alt="' + escapeHtml(meta.name || "") + '">';
+  } else if (meta.preview === "text") {
+    try {
+      const res = await fetch(fileApiUrl(path, "preview"));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "预览失败");
+      if (data.note && data.note !== meta.note) body += '<p class="file-preview-note">' + escapeHtml(data.note) + "</p>";
+      if (data.preview === "text") body += "<pre>" + escapeHtml(data.text || "") + "</pre>";
+      else if (data.note) body += '<p class="file-preview-note">' + escapeHtml(data.note) + "</p>";
+    } catch (error) {
+      toast("预览失败：" + error.message, "error");
+      return;
+    }
+  } else if (!meta.note) {
+    body += '<p class="file-preview-note">此格式不在本界面预览，请下载后用本机应用打开。</p>';
+  }
+  openModal({
+    title: (meta.name || basename(path)) + (meta.size != null ? " · " + formatSize(meta.size) : ""),
+    body: '<div class="file-preview">' + body + "</div>",
+    actions: [
+      {
+        label: "下载",
+        kind: "primary",
+        onClick: () => {
+          const link = document.createElement("a");
+          link.href = downloadHref;
+          link.download = meta.name || "";
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          return false;
+        },
+      },
+      { label: "关闭" },
+    ],
+  });
+}
 
 function openModal(options) {
   el.modalLayer.hidden = false;
@@ -3439,20 +3627,27 @@ function bindEvents() {
   document.addEventListener("paste", (event) => {
     if (document.activeElement !== el.input) return;
     const items = event.clipboardData ? Array.from(event.clipboardData.items) : [];
-    const files = items
-      .filter((item) => item.type && item.type.startsWith("image/"))
-      .map((item) => item.getAsFile())
-      .filter(Boolean);
+    const files = items.map((item) => item.getAsFile()).filter(Boolean);
     if (files.length) {
       event.preventDefault();
       addFiles(files);
     }
   });
 
+  el.messages.addEventListener("click", (event) => {
+    const link = event.target.closest && event.target.closest("[data-ws-file]");
+    if (!link || !el.messages.contains(link)) return;
+    event.preventDefault();
+    openWorkspaceFile(link.getAttribute("data-ws-file"));
+  });
+
   el.attachRow.addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove]");
     if (!button) return;
-    state.attachments.splice(Number(button.getAttribute("data-remove")), 1);
+    const index = Number(button.getAttribute("data-remove"));
+    const item = state.attachments[index];
+    if (item && item.abort) item.abort.abort();
+    state.attachments.splice(index, 1);
     renderAttachments();
   });
 

@@ -1,15 +1,28 @@
 import { createServer } from "node:http";
 import {
-  accessSync, chmodSync, constants as fsConstants, mkdirSync, readFileSync,
+  accessSync, chmodSync, constants as fsConstants, createReadStream, mkdirSync, readFileSync,
   realpathSync, renameSync, statSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PiBridge, buildEnv } from "./lib/pi-bridge.js";
 import { listSessions, isSessionFile, sessionsDir, sessionRoot, messageText } from "./lib/sessions.js";
 import { serveStatic } from "./lib/static.js";
+import {
+  FileAccessError,
+  classifyFile,
+  fileHeaders,
+  forbiddenRoots,
+  imageMediaType,
+  isTrustedOrigin,
+  parseFilenameHeader,
+  previewPayload,
+  readRawBody,
+  resolveWorkspaceFile,
+  saveUpload,
+} from "./lib/files.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(HERE, "public");
@@ -594,6 +607,79 @@ const SAFE_WITHOUT_WORKSPACE = new Set([
   "/api/workspace/pick",
 ]);
 
+
+function fileDenyRoots() {
+  return forbiddenRoots({
+    sessionRoot: sessionRoot(),
+    configDir: CONFIG_DIR,
+    dataDir: DATA_DIR,
+  });
+}
+
+function sendFileError(res, error) {
+  if (error instanceof FileAccessError) {
+    return json(res, error.status, { error: error.message, code: error.code });
+  }
+  return json(res, 400, { error: error.message || String(error) });
+}
+
+async function handleFileRequest(req, res, url) {
+  const rawPath = url.searchParams.get("path") || "";
+  const mode = url.searchParams.get("mode") || "meta";
+  if (!["meta", "preview", "download"].includes(mode)) {
+    return json(res, 400, { error: "unsupported mode" });
+  }
+  let info;
+  try {
+    info = resolveWorkspaceFile(workspace, rawPath, { denyRoots: fileDenyRoots() });
+  } catch (error) {
+    return sendFileError(res, error);
+  }
+  const classify = classifyFile(info.path);
+  const display = info.relativePath || info.path;
+  if (mode === "meta") {
+    return json(res, 200, {
+      name: basename(display),
+      path: info.path,
+      relativePath: display,
+      size: info.stat.size,
+      preview: classify.preview,
+      note: classify.note,
+      office: classify.office,
+    });
+  }
+  if (mode === "preview") {
+    try {
+      const payload = previewPayload(info.path, classify);
+      if (payload.preview === "image") {
+        const type = imageMediaType(info.path);
+        const headers = fileHeaders({ mode: "preview", filename: basename(display), mediaType: type });
+        res.writeHead(200, { ...headers, "content-length": info.stat.size });
+        if (req.method === "HEAD") return res.end();
+        createReadStream(info.path).pipe(res);
+        return undefined;
+      }
+      return json(res, 200, {
+        name: basename(display),
+        path: info.path,
+        relativePath: display,
+        size: info.stat.size,
+        preview: payload.preview,
+        text: payload.text || "",
+        note: payload.note,
+      });
+    } catch (error) {
+      return sendFileError(res, error);
+    }
+  }
+  // download: always attachment + octet-stream for untrusted; fileHeaders handles it
+  const headers = fileHeaders({ mode: "download", filename: basename(display) });
+  res.writeHead(200, { ...headers, "content-length": info.stat.size });
+  if (req.method === "HEAD") return res.end();
+  createReadStream(info.path).pipe(res);
+  return undefined;
+}
+
 async function handleApi(req, res, url) {
   const path = url.pathname;
 
@@ -680,7 +766,28 @@ async function handleApi(req, res, url) {
     return undefined;
   }
 
+  if ((req.method === "GET" || req.method === "HEAD") && path === "/api/file") {
+    return handleFileRequest(req, res, url);
+  }
+
   if (req.method !== "POST") return json(res, 404, { error: "not found" });
+
+  if (path === "/api/upload") {
+    if (!isTrustedOrigin(req)) return json(res, 403, { error: "untrusted origin", code: "origin" });
+    const filename = parseFilenameHeader(req.headers["x-filename"]);
+    let raw;
+    try {
+      raw = await readRawBody(req);
+    } catch (error) {
+      return sendFileError(res, error);
+    }
+    try {
+      const saved = saveUpload(workspace, filename, raw);
+      return json(res, 200, saved);
+    } catch (error) {
+      return sendFileError(res, error);
+    }
+  }
 
   const body = await readBody(req);
 

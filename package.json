@@ -6,6 +6,7 @@
   "description": "A modern web UI for the pi coding agent, driven over pi's RPC mode.",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check lib/pi-bridge.js && node --check lib/sessions.js && node --check lib/static.js && node --check public/js/app.js && node --check public/js/markdown.js && node --check public/sw.js"
+    "check": "node --check server.js && node --check lib/pi-bridge.js && node --check lib/sessions.js && node --check lib/static.js && node --check lib/files.js && node --check public/js/app.js && node --check public/js/markdown.js && node --check public/sw.js",
+    "test": "node --test tests"
   }
 }

@@ -4,13 +4,13 @@
  * - 页面导航与外壳静态资源一律 network-first：先取网络，成功就顺手更新缓存，
  *   失败（断网）才回退缓存。这样改完前端代码刷新就是新的，不会卡在旧版本。
  * - /api/* 完全不拦截、不缓存、不伪造：请求直接交给浏览器/服务端。
- *   SSE（/api/events）也走这条规则，SW 不参与。
+ *   包括 /api/upload、/api/file（预览/下载）和 SSE（/api/events）。SW 不参与。
  * - 缓存名带版本号；activate 时删掉旧版本的缓存。
  * - install 预缓存外壳 + skipWaiting()，activate 里 clientsClaim()，
  *   新版本不用等所有标签页关掉才生效。
  */
 
-const CACHE_NAME = "pi-webui-v3";
+const CACHE_NAME = "pi-webui-v4";
 
 // 只预缓存外壳。图标/logo/manifest 一起带上，断网时至少界面完整。
 const SHELL_ASSETS = [
