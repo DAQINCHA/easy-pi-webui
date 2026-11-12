@@ -86,6 +86,18 @@ describe("history search helpers", () => {
     assert.deepEqual(branch.map((item) => item.text), ["第一问", "采用的回答"]);
   });
 
+  it("uses the last file entry as the default leaf, and an explicit live leafId when provided", () => {
+    const parsed = parseSessionEntries(sessionFile({ id: "s1" }, "分支", [
+      msg("u1", "", "user", "第一问", {}, "2026-01-01T00:00:00.000Z"),
+      msg("a2", "u1", "assistant", "后写入的回答", {}, "2026-01-01T00:00:02.000Z"),
+      msg("a1", "u1", "assistant", "如果按时间会赢但写在后面", {}, "2026-01-01T00:00:03.000Z"),
+    ]));
+    const byFile = activeBranch(parsed.messages);
+    assert.deepEqual(byFile.map((item) => item.text), ["第一问", "如果按时间会赢但写在后面"]);
+    const live = activeBranch(parsed.messages, { leafId: "a2" });
+    assert.deepEqual(live.map((item) => item.text), ["第一问", "后写入的回答"]);
+  });
+
   it("walks through toolResult and control events so earlier visible text stays searchable", () => {
     const lines = [
       JSON.stringify({ type: "session", id: "s0", cwd: "/tmp/ws", timestamp: "2026-01-01T00:00:00.000Z" }),

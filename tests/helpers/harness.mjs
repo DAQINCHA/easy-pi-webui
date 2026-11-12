@@ -54,6 +54,7 @@ export async function startServer(opts = {}) {
     FAKEPI_LOG: envHome.log,
     FAKEPI_SESSION_ID: "fake-session-1",
     FAKEPI_SESSION_FILE: join(envHome.sessions, "fake.jsonl"),
+    ...(opts.env || {}),
   };
   delete env.PI_WEBUI_PORT;
   const child = spawn(process.execPath, [join(ROOT, "server.js"), "--port", String(port), "--host", "127.0.0.1", "--workspace", workspace], {

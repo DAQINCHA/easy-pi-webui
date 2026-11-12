@@ -1,5 +1,6 @@
 import { renderMarkdown, escapeHtml } from "./markdown.js";
 import {
+  PHASE,
   connectionLabel,
   createTaskState,
   describeTask,
@@ -37,6 +38,9 @@ const el = {
   input: $("input"),
   composer: $("composer"),
   attachRow: $("attachRow"),
+  pendingEditBar: $("pendingEditBar"),
+  pendingEditText: $("pendingEditText"),
+  pendingEditCancel: $("pendingEditCancel"),
   attachBtn: $("attachBtn"),
   fileInput: $("fileInput"),
   sendBtn: $("sendBtn"),
@@ -69,6 +73,7 @@ const state = {
   messages: [],
   forkMessages: [],
   forkBusy: false,
+  pendingEdit: null,
   turnFiles: new Map(),
   turnSummary: null,
   turnSummaryOpen: false,
@@ -126,7 +131,12 @@ async function api(path, body) {
       : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
   const response = await fetch(path, options);
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "HTTP " + response.status);
+  if (!response.ok) {
+    const error = new Error(data.error || "HTTP " + response.status);
+    error.data = data;
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 
@@ -1412,22 +1422,34 @@ function forkEntryMap() {
   return map;
 }
 
+function isTurnLocked() {
+  if (state.streaming || state.forkBusy) return true;
+  const phase = state.task && state.task.phase;
+  return phase === PHASE.WAITING || phase === PHASE.THINKING || phase === PHASE.WRITING || phase === PHASE.TOOL || phase === PHASE.RETRYING || phase === PHASE.WORKING;
+}
+
+function turnLockTitle(fallback) {
+  if (isTurnLocked()) return "当前对话还在进行或等待确认，结束后再试。这样不会中断现在的任务";
+  return fallback;
+}
+
 function forkButton(act, entryId, label, hardBlocked, title) {
-  const disabled = hardBlocked || state.streaming || state.forkBusy || !entryId;
+  const disabled = hardBlocked || isTurnLocked() || !entryId;
+  const tip = hardBlocked ? title : turnLockTitle(title);
   return (
     '<button class="action" type="button" data-fork-action' +
     (hardBlocked ? " data-fork-blocked" : "") +
     ' data-act="' + act + '"' +
     ' data-entry-id="' + escapeHtml(entryId || "") + '"' +
     (disabled ? " disabled" : "") +
-    ' title="' + escapeHtml(title) + '">' + label + "</button>"
+    ' title="' + escapeHtml(tip) + '">' + label + "</button>"
   );
 }
 
 function setForkButtonsBusy(busy) {
   for (const button of document.querySelectorAll("[data-fork-action]")) {
     const hardBlocked = button.hasAttribute("data-fork-blocked");
-    button.disabled = hardBlocked || busy || state.streaming || !button.getAttribute("data-entry-id");
+    button.disabled = hardBlocked || busy || isTurnLocked() || !button.getAttribute("data-entry-id");
   }
 }
 
@@ -1452,12 +1474,7 @@ function userNode(message, index, ctx = {}) {
   foot.className = "msg-foot";
   let footHtml = '<button class="action" type="button" data-act="copy-user">' + ICON("copy") + "复制</button>";
   if (ctx.forkEntryId) {
-    const hardBlocked = Boolean(ctx.hasImages);
-    const title = hardBlocked
-      ? "带图片的消息不能编辑或重新生成（分叉后图片会丢）"
-      : "从这条消息之前重新开始";
-    footHtml += forkButton("edit-user", ctx.forkEntryId, "编辑", hardBlocked, title);
-    if (ctx.isLastUser) footHtml += forkButton("regen-user", ctx.forkEntryId, "重新生成", hardBlocked, title);
+    footHtml += forkButton("edit-user", ctx.forkEntryId, "编辑", false, "把这条请求放回输入框。只有发送时才会从这里继续，原来的回答还在。取消则不会改动对话");
   }
   foot.innerHTML = footHtml;
   node.appendChild(foot);
@@ -1494,7 +1511,8 @@ function turnContext(turn, options) {
       hasImages: userMessage ? imageBlocks(userMessage).length > 0 : false,
       isLastUser: Boolean(userMessage) && userMessage === lastUser,
     },
-    regenEntryId: ownsLastAssistant && userMessage ? forkMap.get(userMessage) || null : null,
+    regenEntryId: userMessage ? forkMap.get(userMessage) || null : null,
+    ownsLastAssistant,
     liveBlocks: opts.liveBlocks || null,
     streaming: Boolean(opts.streaming),
     refresh: Boolean(opts.refresh),
@@ -1550,8 +1568,9 @@ function turnNodes(turn, ctx) {
     if (position === footAt) {
       // 纯过程的一轮没有正文，就不放一个点了没反应的「复制」。
       let footHtml = hasText ? '<button class="action" type="button" data-act="copy-bot">' + ICON("copy") + "复制</button>" : "";
-      if (ctx.regenEntryId) {
-        footHtml += forkButton("regen-bot", ctx.regenEntryId, "重新生成", false, "从这条回答对应的消息重新开始");
+      if (ctx.regenEntryId && !ctx.streaming) {
+        footHtml += forkButton("retry-bot", ctx.regenEntryId, "重新生成", false, "在同一会话里按原来的请求重新生成。原来的回答还在。重新生成会重新执行任务；已修改文件不会自动回滚");
+        footHtml += forkButton("alternate-bot", ctx.regenEntryId, "另开分支", false, "会新建一个独立会话来试另一种做法，不是在当前会话里分叉。原来的对话还在，不会自动发送");
       }
       if (footHtml) html += '<div class="msg-foot">' + footHtml + "</div>";
     }
@@ -1954,7 +1973,9 @@ function applySnapshot(snapshot) {
       if (item && item.abort) item.abort.abort();
     }
     state.attachments = [];
+    state.pendingEdit = null;
     renderAttachments();
+    renderPendingEditHint();
     dispatchTask({ type: "__session", key: snapshot.key });
     state.turnFiles = new Map();
     state.turnSummary = null;
@@ -2106,47 +2127,283 @@ async function refreshForkMessages() {
   renderThread();
 }
 
-async function handleForkAction(act, button) {
-  if (state.forkBusy || !state.key) return;
-  if (state.streaming) {
-    toast("正在回复，等这一轮结束再操作", "error");
+function branchApiError(error, data) {
+  const payload = data || (error && error.data) || null;
+  if (payload && payload.navigated && payload.error) {
+    return "已经回到这条请求之前，但发送失败：" + payload.error;
+  }
+  const message = error && error.message ? String(error.message) : "操作失败";
+  if (/\b404\b/.test(message) || (payload && payload.code === "tree_command_missing")) {
+    return message.indexOf("重启") >= 0 ? message : "导航接口不可用。需要先重启 easy-pi-webui 服务，再刷新页面。";
+  }
+  return "操作失败：" + message;
+}
+
+function fillComposer(text, images) {
+  for (const item of state.attachments) {
+    if (item && item.abort) item.abort.abort();
+  }
+  state.attachments = [];
+  for (const image of images || []) {
+    if (!image || !image.data) continue;
+    const mime = image.mimeType || image.mime || "image/png";
+    const data = image.data;
+    const url = "data:" + mime + ";base64," + data;
+    state.attachments.push({ kind: "image", data, mime, url, name: "图片" });
+  }
+  el.input.value = text || "";
+  renderAttachments();
+  autosize();
+  updateSendState();
+  el.input.focus();
+}
+
+function renderPendingEditHint() {
+  if (!el.pendingEditBar) return;
+  const pending = state.pendingEdit;
+  el.pendingEditBar.hidden = !pending;
+  if (el.pendingEditText) {
+    el.pendingEditText.textContent = pending
+      ? "原文已放回输入框。发送后会从这里继续，原来的回答还在。取消则不会改动对话。"
+      : "";
+  }
+}
+
+function clearPendingEdit(clearComposer) {
+  state.pendingEdit = null;
+  if (clearComposer) {
+    fillComposer("", []);
+  }
+  renderPendingEditHint();
+}
+
+async function startEdit(entryId) {
+  if (state.forkBusy || !state.file || !state.key) {
+    toast(state.file ? "正在处理上一次操作" : "当前会话还没有保存，无法编辑", "error");
     return;
   }
-  const entryId = button.getAttribute("data-entry-id");
-  if (!entryId) {
-    toast("这条消息不能编辑", "error");
+  if (isTurnLocked()) {
+    toast(turnLockTitle("当前对话还在进行或等待确认，结束后再试"), "error");
     return;
   }
-  const regen = act !== "edit-user";
   state.forkBusy = true;
   setForkButtonsBusy(true);
   try {
-    const data = await api("/api/fork", { key: state.key, entryId });
-    const previousKey = state.key;
-    // 先应用快照再发消息，避免拿旧 key 发。
-    applySnapshot(data.snapshot);
-    if (data.snapshot.key !== previousKey) connectStream();
-    el.input.value = data.text || "";
-    autosize();
-    updateSendState();
-    if (regen) {
-      toast("已从这条消息重新开始");
-      await sendMessage();
-    } else {
-      el.input.focus();
-      toast("原文已放回输入框，改完发送即可");
-    }
+    const data = await api("/api/session/branch", {
+      key: state.key,
+      file: state.file,
+      mode: "preview",
+      entryId,
+      from: "user",
+    });
+    const prompt = data.prompt || {};
+    state.pendingEdit = {
+      entryId: data.entryId || entryId,
+      file: state.file,
+      key: state.key,
+      images: prompt.images || [],
+    };
+    fillComposer(prompt.text || "", prompt.images || []);
+    renderPendingEditHint();
+    toast("原文已放回输入框。不发送就不会改动当前对话");
   } catch (error) {
-    toast("操作失败：" + error.message, "error");
+    toast(branchApiError(error), "error");
   } finally {
     state.forkBusy = false;
     setForkButtonsBusy(false);
   }
 }
 
-/* ---------- 完成通知（默认关） ---------- */
+async function commitPendingEdit() {
+  const pending = state.pendingEdit;
+  if (!pending) return;
+  if (state.forkBusy) {
+    toast("正在处理上一次操作", "error");
+    return;
+  }
+  if (isTurnLocked()) {
+    toast(turnLockTitle("当前对话还在进行或等待确认，结束后再试"), "error");
+    return;
+  }
+  if (state.attachments.some((item) => item.kind === "file" && item.status !== "ready")) {
+    toast("还有文件正在上传或失败，请处理后再发送", "error");
+    return;
+  }
+  const text = el.input.value.trim();
+  const images = [];
+  const seen = new Set();
+  for (const item of state.attachments) {
+    if (item && item.kind !== "file" && item.data) {
+      images.push({ mimeType: item.mime || "image/png", data: item.data });
+      seen.add(item.data);
+    }
+  }
+  for (const image of pending.images || []) {
+    if (image && image.data && !seen.has(image.data)) images.push(image);
+  }
+  const files = state.attachments.filter((item) => item.kind === "file" && item.storedPath);
+  const message = appendAttachmentContext(text, files);
+  if (!message && !images.length) {
+    toast("没有可发送的内容", "error");
+    return;
+  }
+  const previousText = el.input.value;
+  const previousAttachments = state.attachments.slice();
+  el.input.value = "";
+  autosize();
+  state.attachments = [];
+  renderAttachments();
+  updateSendState();
+  closeSlash();
+  addOptimisticUser(message || text, images.map((image) => ({ type: "image", data: image.data, mimeType: image.mimeType })));
+  state.forkBusy = true;
+  setForkButtonsBusy(true);
+  try {
+    const data = await api("/api/session/branch", {
+      key: pending.key || state.key,
+      file: pending.file || state.file,
+      mode: "edit-send",
+      entryId: pending.entryId,
+      from: "user",
+      message: message || "请看这张图片。",
+      images,
+    });
+    state.pendingEdit = null;
+    renderPendingEditHint();
+    if (data.snapshot) {
+      const previousKey = state.key;
+      applySnapshot(data.snapshot);
+      if (data.snapshot.key !== previousKey) connectStream();
+    }
+    if (data.ok === false || data.sent === false) {
+      if (state.optimisticEl) {
+        state.optimisticEl.remove();
+        state.optimisticEl = null;
+      }
+      fillComposer(previousText, images);
+      toast(branchApiError(null, data), "error");
+      return;
+    }
+    toast("已从这条请求继续，原来的回答还在");
+  } catch (error) {
+    if (state.optimisticEl) {
+      state.optimisticEl.remove();
+      state.optimisticEl = null;
+    }
+    const data = error && error.data;
+    if (data && data.snapshot) {
+      const previousKey = state.key;
+      applySnapshot(data.snapshot);
+      if (data.snapshot.key !== previousKey) connectStream();
+    }
+    if (data && data.navigated) {
+      state.pendingEdit = null;
+      renderPendingEditHint();
+      fillComposer(previousText, images);
+      toast(branchApiError(error, data), "error");
+    } else {
+      el.input.value = previousText;
+      state.attachments = previousAttachments;
+      renderAttachments();
+      autosize();
+      updateSendState();
+      renderPendingEditHint();
+      toast(branchApiError(error, data), "error");
+    }
+  } finally {
+    state.forkBusy = false;
+    setForkButtonsBusy(false);
+  }
+}
 
-const NOTIFY_KEY = "piwebui.notify";
+function confirmRetry(entryId, from) {
+  if (isTurnLocked()) {
+    toast(turnLockTitle("当前对话还在进行或等待确认，结束后再试"), "error");
+    return;
+  }
+  openModal({
+    title: "重新生成",
+    body:
+      "<p>会保留现在的对话和原来的回答，在同一个会话里按原来的请求再生成一遍。</p>" +
+      "<p>重新生成会重新执行任务；已修改文件不会自动回滚。</p>",
+    actions: [
+      { label: "取消" },
+      {
+        label: "重新生成",
+        kind: "primary",
+        onClick: () => {
+          runSessionBranch("retry", entryId, from);
+        },
+      },
+    ],
+  });
+}
+
+async function runSessionBranch(mode, entryId, from) {
+  if (state.forkBusy || !state.file) {
+    toast(state.file ? "正在处理上一次操作" : "当前会话还没有保存，无法继续", "error");
+    return;
+  }
+  if (isTurnLocked()) {
+    toast(turnLockTitle("当前对话还在进行或等待确认，结束后再试"), "error");
+    return;
+  }
+  state.forkBusy = true;
+  setForkButtonsBusy(true);
+  try {
+    const data = await api("/api/session/branch", {
+      key: state.key,
+      file: state.file,
+      mode,
+      entryId,
+      from,
+    });
+    const previousKey = state.key;
+    if (data.snapshot) {
+      applySnapshot(data.snapshot);
+      if (data.snapshot.key !== previousKey) connectStream();
+    }
+    if (mode === "retry") {
+      if (data.ok === false || data.sent === false) {
+        if (data.prompt) fillComposer(data.prompt.text || "", data.prompt.images || []);
+        toast(branchApiError(null, data), "error");
+        return;
+      }
+      toast("已在同一会话重新生成。原来的回答还在，文件改动不会自动回滚");
+      return;
+    }
+    fillComposer(data.draft || "", data.images || []);
+    state.pendingEdit = null;
+    renderPendingEditHint();
+    toast("已另开一个独立会话，原来的对话还在。改完这条请求再发送，不会自动执行");
+  } catch (error) {
+    const data = error && error.data;
+    if (data && data.snapshot) {
+      const previousKey = state.key;
+      applySnapshot(data.snapshot);
+      if (data.snapshot.key !== previousKey) connectStream();
+    }
+    toast(branchApiError(error, data), "error");
+  } finally {
+    state.forkBusy = false;
+    setForkButtonsBusy(false);
+  }
+}
+
+async function handleForkAction(act, button) {
+  const entryId = button && button.getAttribute("data-entry-id");
+  if (act === "edit-user") {
+    void startEdit(entryId);
+    return;
+  }
+  if (act === "retry-user" || act === "retry-bot") {
+    confirmRetry(entryId, act === "retry-user" ? "user" : "assistant");
+    return;
+  }
+  if (act === "alternate-bot") {
+    void runSessionBranch("alternate", entryId, "assistant");
+  }
+}
 
 function readNotifyPref() {
   try {
@@ -2611,6 +2868,10 @@ async function sendMessage() {
     openWorkspacePicker();
     return;
   }
+  if (state.pendingEdit) {
+    await commitPendingEdit();
+    return;
+  }
   const text = el.input.value.trim();
   if (!text && !state.attachments.length) return;
   if (!state.key) {
@@ -2815,6 +3076,7 @@ function updateSlash() {
   const items = state.commands
     .filter((command) => {
       if (command.name.startsWith("builtin:")) return false;
+      if (command.name === "easy-pi-webui-tree" || command.name.startsWith("easy-pi-webui-tree:")) return false;
       return !query || command.name.toLowerCase().includes(query) || (command.description || "").toLowerCase().includes(query);
     })
     .slice(0, 9);
@@ -3913,13 +4175,13 @@ function bindEvents() {
     const action = event.target.closest("[data-act]");
     if (action) {
       const act = action.getAttribute("data-act");
-      if (act === "edit-user" || act === "regen-user" || act === "regen-bot") {
+      if (act === "edit-user" || act === "retry-user" || act === "retry-bot" || act === "alternate-bot" || act === "regen-user" || act === "regen-bot") {
         handleForkAction(act, action);
         return;
       }
       const node = action.closest(".msg");
       if (!node) return;
-      // 只复制正文，不要把过程摘要、卡片内容、「复制 / 编辑 / 重新生成」这些按钮文字带进去。
+      // 只复制正文，不要把过程摘要、卡片内容、「复制 / 编辑 / 重新生成 / 另开分支」这些按钮文字带进去。
       const parts = [];
       const bubble = node.querySelector(".bubble");
       if (bubble) {
@@ -3975,6 +4237,12 @@ function bindEvents() {
     openWorkspaceFile(link.getAttribute("data-ws-file"));
   });
 
+  if (el.pendingEditCancel) {
+    el.pendingEditCancel.addEventListener("click", () => {
+      clearPendingEdit(true);
+      toast("已取消编辑，当前对话没有改动");
+    });
+  }
   el.attachRow.addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove]");
     if (!button) return;

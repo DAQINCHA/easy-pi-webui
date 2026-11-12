@@ -1352,6 +1352,30 @@ html[data-mode="system"] .theme-mode-system { display: block; }
 
 .attach-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 4px 8px; }
 .attach-row[hidden] { display: none; }
+
+.pending-edit-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 4px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elev-2);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.pending-edit-bar[hidden] { display: none; }
+.pending-edit-bar .action {
+  flex: none;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pending-edit-bar { transition: none; }
+}
+
 .attach-thumb {
   position: relative;
   border-radius: 10px;

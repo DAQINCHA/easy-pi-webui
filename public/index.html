@@ -153,6 +153,10 @@
     <div class="composer-shell">
       <div class="composer" id="composer">
         <div class="attach-row" id="attachRow" hidden></div>
+        <div class="pending-edit-bar" id="pendingEditBar" hidden>
+          <span id="pendingEditText">原文已放回输入框。发送后会从这里继续，原来的回答还在。取消则不会改动对话。</span>
+          <button type="button" class="action" id="pendingEditCancel">取消编辑</button>
+        </div>
         <textarea id="input" rows="1" placeholder="给 pi 发消息，输入 / 查看命令" autocomplete="off"></textarea>
         <div class="composer-bar">
           <div class="composer-left">

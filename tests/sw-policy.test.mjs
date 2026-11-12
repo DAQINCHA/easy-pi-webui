@@ -9,7 +9,7 @@ const source = readFileSync(join(root, "public/sw.js"), "utf8");
 
 describe("service worker cache policy", () => {
   it("uses a versioned cache name and does not intercept /api/*", () => {
-    assert.match(source, /const CACHE_NAME = "pi-webui-v6"/);
+    assert.match(source, /const CACHE_NAME = "pi-webui-v7"/);
     assert.match(source, /url\.pathname\.startsWith\("\/api\/"\)/);
     const fetchHandler = source.slice(source.indexOf('self.addEventListener("fetch"'));
     const apiGuard = fetchHandler.indexOf('url.pathname.startsWith("/api/")');
@@ -22,6 +22,7 @@ describe("service worker cache policy", () => {
     assert.match(source, /\/api\/file/);
     assert.match(source, /\/api\/sessions\/search/);
     assert.match(source, /\/api\/session\/export/);
+    assert.match(source, /\/api\/session\/branch/);
   });
   it("only pre-caches the shell, not upload or file APIs", () => {
     const start = source.indexOf("const SHELL_ASSETS");

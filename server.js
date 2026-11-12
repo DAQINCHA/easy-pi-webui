@@ -9,7 +9,24 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PiBridge, buildEnv } from "./lib/pi-bridge.js";
 import { listSessions, isSessionFile, sessionsDir, sessionRoot, messageText } from "./lib/sessions.js";
-import { exportSessionFile, searchWorkspaceSessions } from "./lib/history.js";
+import { exportSessionFile, resolveSessionFile, searchWorkspaceSessions } from "./lib/history.js";
+import {
+  RETRY_WARNING,
+  TREE_EXTENSION_PATH,
+  branchTitle,
+  expectedLeafAfterNavigate,
+  extractPrompt,
+  fileFingerprint,
+  fingerprintsMatch,
+  findUserEntry,
+  parseSessionRecords,
+  reservedTreeCommand,
+  resolveTreeCommand,
+  samePath,
+  sessionBusyReason,
+  treeCommandMessage,
+  ALTERNATE_SUFFIX,
+} from "./lib/tree-nav.js";
 import { serveStatic } from "./lib/static.js";
 import {
   FileAccessError,
@@ -666,6 +683,340 @@ async function handleSessionExport(req, res, url, body) {
   }
 }
 
+function sessionFileBusyReason(file) {
+  let target;
+  try { target = resolve(file); } catch { return ""; }
+  for (const bridge of bridges.values()) {
+    if (!bridge.sessionFile) continue;
+    if (!samePath(bridge.sessionFile, file) && !samePath(bridge.sessionFile, target)) continue;
+    const id = statusId(bridge);
+    const runtime = id ? sessionRuntime.get(id) : null;
+    const reason = sessionBusyReason({
+      streaming: Boolean(bridge.streaming),
+      running: Boolean(runtime && runtime.running),
+      pendingUi: Boolean(bridge.pendingUi && bridge.pendingUi.size),
+    });
+    if (reason) return reason;
+  }
+  return "";
+}
+
+const sessionLocks = new Set();
+
+async function liveBusyReason(file, bridge) {
+  const local = sessionFileBusyReason(file);
+  if (local) return local;
+  if (!bridge) return "";
+  if (bridge.streaming) return sessionBusyReason({ streaming: true });
+  if (bridge.pendingUi && bridge.pendingUi.size) return sessionBusyReason({ pendingUi: true });
+  try {
+    const state = await command(bridge, { type: "get_state" });
+    return sessionBusyReason({
+      streaming: Boolean(state.data && state.data.isStreaming),
+      compacting: Boolean(state.data && state.data.isCompacting),
+    });
+  } catch {
+    return "";
+  }
+}
+
+function lockSessionFile(file) {
+  const key = resolve(file);
+  if (sessionLocks.has(key)) {
+    const error = new FileAccessError("正在处理同样的请求，请稍等", 409, "busy");
+    throw error;
+  }
+  sessionLocks.add(key);
+  return key;
+}
+
+function entriesFromFile(file) {
+  const parsed = parseSessionRecords(readFileSync(file, "utf8"));
+  return parsed.records || [];
+}
+
+async function readLiveEntries(bridge) {
+  try {
+    const response = await command(bridge, { type: "get_entries" });
+    const data = response.data || {};
+    const entries = data.entries || data.nodes || data.messages || [];
+    return {
+      entries,
+      leafId: String(data.leafId || data.currentLeafId || ""),
+    };
+  } catch {
+    const response = await command(bridge, { type: "get_tree" });
+    const data = response.data || {};
+    return {
+      entries: data.entries || data.nodes || [],
+      leafId: String(data.leafId || data.currentLeafId || ""),
+    };
+  }
+}
+
+async function currentLeafId(bridge) {
+  try {
+    const tree = await command(bridge, { type: "get_tree" });
+    if (tree && tree.data && ("leafId" in tree.data || "currentLeafId" in tree.data)) {
+      return String(tree.data.leafId || tree.data.currentLeafId || "");
+    }
+  } catch {
+    /* fall through */
+  }
+  const live = await readLiveEntries(bridge);
+  return String(live.leafId || "");
+}
+
+async function ensureTreeInvocation(bridge) {
+  const response = await command(bridge, { type: "get_commands" });
+  return resolveTreeCommand((response.data && response.data.commands) || [], TREE_EXTENSION_PATH);
+}
+
+function collectExtensionErrors(bridge) {
+  const errors = [];
+  const listener = (item) => {
+    const record = item && item.record;
+    if (record && record.type === "extension_error") errors.push(record);
+  };
+  bridge.on("record", listener);
+  return {
+    errors,
+    stop() {
+      bridge.off("record", listener);
+    },
+  };
+}
+
+async function navigateToUser(bridge, userEntry) {
+  const invocation = await ensureTreeInvocation(bridge);
+  const message = treeCommandMessage(invocation, userEntry.id);
+  const expected = expectedLeafAfterNavigate(userEntry);
+  const collector = collectExtensionErrors(bridge);
+  let response;
+  try {
+    response = await bridge.send({ type: "prompt", message }, 60000);
+  } finally {
+    collector.stop();
+  }
+  if (!response.success) {
+    throw new FileAccessError(response.error || "树导航失败", 502, "tree_nav_failed");
+  }
+  const disposition = response.data && response.data.disposition;
+  if (disposition && disposition !== "handled") {
+    throw new FileAccessError("树导航命令没有被扩展处理，已中止，没有向模型发送请求。", 502, "tree_nav_failed");
+  }
+  if (collector.errors.length) {
+    const err = collector.errors[0];
+    throw new FileAccessError(err.error || err.message || "树导航扩展报错，已中止，没有向模型发送请求。", 502, "tree_nav_failed");
+  }
+  const after = await currentLeafId(bridge);
+  if (String(after || "") !== String(expected || "")) {
+    throw new FileAccessError("树导航后活动分支没有落在预期位置，已中止，没有向模型发送请求。", 502, "tree_nav_failed");
+  }
+  return { invocation, after, expected };
+}
+
+async function promptUser(bridge, prompt) {
+  const text = String((prompt && prompt.text) || "").trim() || ((prompt && prompt.images && prompt.images.length) ? "请看这张图片。" : "");
+  if (!text && !(prompt && prompt.images && prompt.images.length)) {
+    throw new FileAccessError("没有可发送的内容", 400, "empty");
+  }
+  if (reservedTreeCommand(text)) {
+    throw new FileAccessError("这是内部导航命令，请使用「编辑」或「重新生成」，不要当作普通消息发送。", 400, "reserved_command");
+  }
+  const payload = { type: "prompt", message: text };
+  if (prompt && prompt.images && prompt.images.length) payload.images = prompt.images;
+  const started = await bridge.send(payload);
+  if (!started.success) {
+    throw new FileAccessError(started.error || "发送失败", 400, "prompt_failed");
+  }
+  const disposition = started.data && started.data.disposition;
+  if (disposition === "handled") {
+    throw new FileAccessError("请求被当成命令处理了，没有发给模型", 502, "prompt_failed");
+  }
+  return started;
+}
+
+async function handleSessionBranch(req, res, body) {
+  if (req.headers.origin && !isTrustedOrigin(req)) {
+    return json(res, 403, { error: "untrusted origin", code: "origin" });
+  }
+  if (!workspace) return json(res, 400, { error: "请先选择工作目录" });
+  const mode = body && body.mode;
+  const file = body && body.file;
+  const entryId = body && body.entryId;
+  const from = body && body.from;
+  const key = body && body.key;
+  if (!["preview", "retry", "edit-send", "alternate"].includes(mode)) {
+    return json(res, 400, { error: "不支持的操作", code: "bad_mode" });
+  }
+  if (!file || !entryId) {
+    return json(res, 400, { error: "缺少会话或消息", code: "missing_entry" });
+  }
+
+  let sessionFile;
+  try {
+    const resolved = resolveSessionFile(file, workspace);
+    sessionFile = resolved.real || resolved.file;
+  } catch (error) {
+    return sendFileError(res, error);
+  }
+
+  let lockKey;
+  try {
+    lockKey = lockSessionFile(sessionFile);
+  } catch (error) {
+    return sendFileError(res, error);
+  }
+
+  try {
+    const bridge = key ? bridges.get(key) : null;
+    if (mode !== "preview" && !bridge) {
+      return json(res, 400, { error: "请先打开这个会话", code: "no_session" });
+    }
+    if (bridge && bridge.exited) {
+      return json(res, 409, { error: "当前会话已断开，请重新打开后再试", code: "disconnected" });
+    }
+    if (bridge && bridge.sessionFile && !samePath(bridge.sessionFile, sessionFile)) {
+      return json(res, 409, { error: "打开的会话与请求的文件不一致", code: "session_mismatch" });
+    }
+
+    if (mode !== "preview") {
+      const busy = await liveBusyReason(sessionFile, bridge);
+      if (busy) return json(res, 409, { error: busy, code: "busy" });
+    }
+
+    let entries = [];
+    if (bridge) {
+      try {
+        const live = await readLiveEntries(bridge);
+        entries = live.entries || [];
+      } catch {
+        entries = [];
+      }
+    }
+    if (!entries.length) entries = entriesFromFile(sessionFile);
+
+    const userEntry = findUserEntry(entries, entryId, from);
+    const prompt = extractPrompt(userEntry);
+    if (!prompt.ok) {
+      return json(res, 400, { error: prompt.reason, code: "incomplete_prompt" });
+    }
+
+    if (mode === "preview") {
+      return json(res, 200, {
+        ok: true,
+        mode,
+        sameSession: true,
+        navigated: false,
+        sent: false,
+        entryId: userEntry.id,
+        prompt: { text: prompt.text, images: prompt.images },
+        warning: RETRY_WARNING,
+      });
+    }
+
+    const beforeFp = fileFingerprint(sessionFile);
+
+    if (mode === "retry" || mode === "edit-send") {
+      const sendPrompt = mode === "edit-send"
+        ? {
+            text: String(body.message != null ? body.message : prompt.text).trim() || prompt.text,
+            images: Array.isArray(body.images) ? body.images : prompt.images,
+          }
+        : prompt;
+      if (!sendPrompt.text && !(sendPrompt.images || []).length) {
+        return json(res, 400, { error: "没有可发送的内容", code: "empty" });
+      }
+      const editImages = extractPrompt({ content: (sendPrompt.images || []).map((image) => ({ type: "image", ...image })) });
+      if (sendPrompt.images && sendPrompt.images.length && !editImages.ok && editImages.reason) {
+        return json(res, 400, { error: editImages.reason, code: "incomplete_prompt" });
+      }
+      try {
+        await navigateToUser(bridge, userEntry);
+      } catch (error) {
+        return sendFileError(res, error);
+      }
+      try {
+        await promptUser(bridge, sendPrompt);
+      } catch (error) {
+        let snapshotData = null;
+        try { snapshotData = await snapshot(bridge); } catch { /* ignore */ }
+        const status = error instanceof FileAccessError ? error.status : 400;
+        return json(res, status, {
+          ok: false,
+          mode,
+          sameSession: true,
+          navigated: true,
+          sent: false,
+          error: error.message || String(error),
+          code: error.code || "prompt_failed",
+          snapshot: snapshotData,
+          warning: RETRY_WARNING,
+          prompt: { text: sendPrompt.text, images: sendPrompt.images || [] },
+        });
+      }
+      sessionCache.at = 0;
+      return json(res, 200, {
+        ok: true,
+        mode,
+        sameSession: true,
+        navigated: true,
+        sent: true,
+        warning: RETRY_WARNING,
+        snapshot: await snapshot(bridge),
+      });
+    }
+
+    // alternate: official fork creates a new session and switches this process to it.
+    const previousKey = bridge.key;
+    const previousId = previousKey && String(previousKey).startsWith("s:") ? previousKey.slice(2) : "";
+    const response = await bridge.send({ type: "fork", entryId: userEntry.id }, 60000);
+    if (!response.success) {
+      return json(res, 400, { error: response.error || "无法另开分支", code: "fork_failed" });
+    }
+    if (response.data && response.data.cancelled) {
+      return json(res, 400, { error: "另开分支已取消", code: "fork_cancelled" });
+    }
+    const state = await command(bridge, { type: "get_state" });
+    const newId = state.data && state.data.sessionId;
+    const newFile = state.data && state.data.sessionFile;
+    if (!newId || (previousId && newId === previousId) || (newFile && samePath(newFile, sessionFile))) {
+      return json(res, 502, {
+        error: "官方 fork 没有创建新会话，已中止，没有改成同会话冒充。",
+        code: "fork_no_new_session",
+      });
+    }
+    if (previousKey) bridges.delete(previousKey);
+    bridge.key = "s:" + newId;
+    bridges.set(bridge.key, bridge);
+    if (newFile) bridge.sessionFile = newFile;
+    log("fork migrated session key", bridge.key);
+    let originalUnchanged = true;
+    try { originalUnchanged = fingerprintsMatch(beforeFp, fileFingerprint(sessionFile)); } catch { originalUnchanged = false; }
+    const name = branchTitle((state.data && state.data.sessionName) || "", ALTERNATE_SUFFIX);
+    try { await command(bridge, { type: "set_session_name", name }); } catch { /* ignore */ }
+    sessionCache.at = 0;
+    return json(res, 200, {
+      ok: true,
+      mode,
+      newSession: true,
+      sameSession: false,
+      sent: false,
+      draft: prompt.text,
+      images: prompt.images,
+      warning: RETRY_WARNING,
+      originalFile: sessionFile,
+      originalUnchanged,
+      snapshot: await snapshot(bridge),
+    });
+  } catch (error) {
+    return sendFileError(res, error);
+  } finally {
+    if (lockKey) sessionLocks.delete(lockKey);
+  }
+}
+
 function fileDenyRoots() {
   return forbiddenRoots({
     sessionRoot: sessionRoot(),
@@ -859,6 +1210,10 @@ async function handleApi(req, res, url) {
 
   if (path === "/api/session/export") {
     return handleSessionExport(req, res, url, body);
+  }
+
+  if (path === "/api/session/branch") {
+    return handleSessionBranch(req, res, body);
   }
 
   if (path === "/api/session/seen") {
@@ -1063,6 +1418,12 @@ async function handleApi(req, res, url) {
     const message = String(body.message || "");
     if (!message.trim() && !(body.images || []).length) {
       return json(res, 400, { error: "empty message" });
+    }
+    if (reservedTreeCommand(message)) {
+      return json(res, 400, {
+        error: "这是内部导航命令，请使用「编辑」或「重新生成」，不要当作普通消息发送。",
+        code: "reserved_command",
+      });
     }
     const payload = { type: "prompt", message };
     if (body.images?.length) payload.images = body.images;
