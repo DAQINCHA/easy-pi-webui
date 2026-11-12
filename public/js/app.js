@@ -3976,10 +3976,43 @@ function sidebarVisible() {
   return !el.app.classList.contains("sidebar-hidden");
 }
 
+function prefersReducedSidebarMotion() {
+  return Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+}
+
+const SIDEBAR_TOGGLE_MS = 200;
+let sidebarToggleTimer = 0;
+
+function finishSidebarToggle() {
+  if (sidebarToggleTimer) {
+    clearTimeout(sidebarToggleTimer);
+    sidebarToggleTimer = 0;
+  }
+  el.app.classList.remove("sidebar-animating");
+  syncSidebarAvailability();
+}
+
+function syncSidebarAvailability() {
+  if (!el.sidebar) return;
+  if (sidebarVisible()) el.sidebar.removeAttribute("inert");
+  else el.sidebar.setAttribute("inert", "");
+}
+
+function beginSidebarToggle() {
+  if (prefersReducedSidebarMotion()) {
+    finishSidebarToggle();
+    return;
+  }
+  el.app.classList.add("sidebar-animating");
+  if (sidebarToggleTimer) clearTimeout(sidebarToggleTimer);
+  sidebarToggleTimer = setTimeout(finishSidebarToggle, SIDEBAR_TOGGLE_MS + 40);
+}
+
 function syncNavToggle() {
   const label = sidebarVisible() ? "收起侧栏" : "展开侧栏";
   el.menuBtn.title = label;
   el.menuBtn.setAttribute("aria-label", label);
+  syncSidebarAvailability();
 }
 
 function toggleSidebar() {
@@ -3993,6 +4026,7 @@ function toggleSidebar() {
       /* ignore */
     }
   }
+  beginSidebarToggle();
   syncNavToggle();
   requestAnimationFrame(updateRailVisibility);
 }
@@ -4101,7 +4135,11 @@ function bindEvents() {
       if (hit) locateSearchHit(hit);
     })
       .then(() => {
-        if (window.innerWidth <= 900) el.app.classList.remove("sidebar-open");
+        if (window.innerWidth <= 900) {
+          el.app.classList.remove("sidebar-open");
+          beginSidebarToggle();
+          syncNavToggle();
+        }
       })
       .catch((error) => toast("打开会话失败：" + error.message, "error"));
   });
@@ -4121,6 +4159,7 @@ function bindEvents() {
   el.menuBtn.addEventListener("click", toggleSidebar);
   el.scrim.addEventListener("click", () => {
     el.app.classList.remove("sidebar-open");
+    beginSidebarToggle();
     syncNavToggle();
   });
 
@@ -4372,6 +4411,7 @@ function bindEvents() {
     if (state.es) state.es.close();
   });
   window.addEventListener("resize", () => {
+    finishSidebarToggle();
     syncNavToggle();
     renderRail();
     autosize();

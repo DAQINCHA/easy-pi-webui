@@ -9,6 +9,7 @@
   --ease: cubic-bezier(.22, 1, .36, 1);
   --ease-spring: cubic-bezier(.34, 1.36, .64, 1);
   --sidebar-w: 248px;
+  --sidebar-toggle-ms: 200ms;
   --thread-max: 812px;
   --radius: 0;
   --radius-lg: 0;
@@ -246,13 +247,10 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   border-top: 2px solid var(--ink);
 }
 
-.app.sidebar-hidden { grid-template-columns: 0 minmax(0, 1fr); }
-.app.sidebar-hidden .sidebar {
-  transform: translateX(-8px);
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition: transform .28s var(--ease), opacity .2s var(--ease), visibility 0s .28s;
+.app.sidebar-hidden { grid-template-columns: 0px minmax(0, 1fr); }
+/* 只在用户开闭时给网格加过渡：首次加载、拖宽、窗口缩放都保持即时。 */
+.app.sidebar-animating {
+  transition: grid-template-columns var(--sidebar-toggle-ms) var(--ease);
 }
 
 /* 桌面端不参与 grid 布局，只在窄屏抽屉里出现 */
@@ -260,18 +258,37 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 
 /* ---------------------------- sidebar ----------------------------- */
 
+/* 轨道变窄时由这层裁切，侧栏本身保持 --sidebar-w，避免标题和按钮被挤扁。 */
+.sidebar-slot {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 .sidebar {
   position: relative;
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  width: var(--sidebar-w);
+  min-width: var(--sidebar-w);
   min-height: 0;
+  flex: 1 1 auto;
   overflow: hidden;
   padding: 14px 10px 10px;
   background: var(--bg-sidebar);
   border-right: 2px solid var(--ink);
-  transition: transform .28s var(--ease), opacity .2s var(--ease);
   z-index: 30;
+}
+
+.app.sidebar-hidden .sidebar {
+  pointer-events: none;
+  visibility: hidden;
+}
+/* 折叠动画还在走时保持可见，等轨道到 0 再隐藏，避免瞬断。 */
+.app.sidebar-animating.sidebar-hidden .sidebar {
+  visibility: visible;
 }
 
 .sidebar-head {
@@ -2012,19 +2029,31 @@ body.resizing .sidebar { transition: none; }
 /* --------------------------- responsive --------------------------- */
 
 @media (max-width: 900px) {
-  .app { grid-template-columns: minmax(0, 1fr); }
+  .app,
+  .app.sidebar-hidden { grid-template-columns: minmax(0, 1fr); }
+  .app.sidebar-animating { transition: none; }
   .sidebar-resizer, .message-rail { display: none; }
+  .sidebar-slot { display: contents; }
   .sidebar {
     position: fixed;
     left: 0; top: 0; bottom: 0;
     width: min(300px, 84vw);
+    min-width: 0;
+    flex: none;
     transform: translateX(-102%);
+    visibility: hidden;
     box-shadow: var(--shadow-drawer);
     z-index: 60;
     border-top: 2px solid var(--ink);
   }
-  .app.sidebar-open .sidebar { transform: translateX(0); }
-  .app.sidebar-hidden .sidebar { transform: translateX(-102%); opacity: 1; }
+  .app.sidebar-animating .sidebar {
+    visibility: visible;
+    transition: transform var(--sidebar-toggle-ms) var(--ease);
+  }
+  .app.sidebar-open .sidebar {
+    transform: translateX(0);
+    visibility: visible;
+  }
   .scrim {
     display: block;
     position: fixed; inset: 0;
@@ -2070,10 +2099,15 @@ body.resizing .sidebar { transition: none; }
 @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-3px); opacity: 1; } }
 
 @media (prefers-reduced-motion: reduce) {
+  .app.sidebar-animating,
+  .app.sidebar-animating .sidebar {
+    transition: none;
+  }
   *, *::before, *::after {
     animation-duration: .001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: .001ms !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
 }
