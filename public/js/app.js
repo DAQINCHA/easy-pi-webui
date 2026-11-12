@@ -1434,7 +1434,7 @@ function turnLockTitle(fallback) {
   return fallback;
 }
 
-function forkButton(act, entryId, label, hardBlocked, title) {
+function forkButton(act, entryId, label, hardBlocked, title, icon) {
   const disabled = hardBlocked || isTurnLocked() || !entryId;
   const tip = hardBlocked ? title : turnLockTitle(title);
   return (
@@ -1443,7 +1443,9 @@ function forkButton(act, entryId, label, hardBlocked, title) {
     ' data-act="' + act + '"' +
     ' data-entry-id="' + escapeHtml(entryId || "") + '"' +
     (disabled ? " disabled" : "") +
-    ' title="' + escapeHtml(tip) + '">' + label + "</button>"
+    ' title="' + escapeHtml(tip) + '"' +
+    ' aria-label="' + escapeHtml(label) + '">' +
+    (icon ? ICON(icon) : "") + label + "</button>"
   );
 }
 
@@ -1473,10 +1475,10 @@ function userNode(message, index, ctx = {}) {
   node.innerHTML = html;
   const foot = document.createElement("div");
   foot.className = "msg-foot";
-  let footHtml = '<button class="action" type="button" data-act="copy-user">' + ICON("copy") + "复制</button>";
+  let footHtml = '<button class="action" type="button" data-act="copy-user" aria-label="复制内容">' + ICON("copy") + "复制内容</button>";
   if (ctx.forkEntryId) {
-    footHtml += forkButton("edit-user", ctx.forkEntryId, "编辑", false, "把这条请求放回输入框。只有发送时才会从这里继续，原来的回答还在。取消则不会改动对话");
-    footHtml += forkButton("branch-user", ctx.forkEntryId, "创建分支", false, "从这条请求之前另开一个独立会话，并把这条完整请求（含图片）放入输入框，不会自动发送。原来的对话还在");
+    footHtml += forkButton("edit-user", ctx.forkEntryId, "编辑内容", false, "把这条请求放回输入框。只有发送时才会从这里继续，原来的回答还在。取消则不会改动对话", "edit");
+    footHtml += forkButton("branch-user", ctx.forkEntryId, "创建分支", false, "从这条请求之前另开一个独立会话，并把这条完整请求（含图片）放入输入框，不会自动发送。原来的对话还在", "branch");
   }
   foot.innerHTML = footHtml;
   node.appendChild(foot);
@@ -1575,12 +1577,12 @@ function turnNodes(turn, ctx) {
     }
     if (position === footAt) {
       // 纯过程的一轮没有正文，就不放一个点了没反应的「复制」。
-      let footHtml = hasText ? '<button class="action" type="button" data-act="copy-bot">' + ICON("copy") + "复制</button>" : "";
+      let footHtml = hasText ? '<button class="action" type="button" data-act="copy-bot" aria-label="复制内容">' + ICON("copy") + "复制内容</button>" : "";
       if (ctx.regenEntryId && !ctx.streaming) {
-        footHtml += forkButton("retry-bot", ctx.regenEntryId, "重新生成", false, "在同一会话里按原来的请求重新生成。原来的回答还在。重新生成会重新执行任务；已修改文件不会自动回滚");
+        footHtml += forkButton("retry-bot", ctx.regenEntryId, "重新生成", false, "在同一会话里按原来的请求重新生成。原来的回答还在。重新生成会重新执行任务；已修改文件不会自动回滚", "refresh");
       }
       if (ctx.canClone && ctx.regenEntryId) {
-        footHtml += forkButton("clone-bot", ctx.regenEntryId, "创建分支", false, "复制当前完整对话（含最后回复）到一个新的独立会话。输入框是空的，不会自动发送。原来的对话还在");
+        footHtml += forkButton("clone-bot", ctx.regenEntryId, "创建分支", false, "复制当前完整对话（含最后回复）到一个新的独立会话。输入框是空的，不会自动发送。原来的对话还在", "branch");
       }
       if (footHtml) html += '<div class="msg-foot">' + footHtml + "</div>";
     }

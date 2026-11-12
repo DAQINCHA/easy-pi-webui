@@ -53,6 +53,7 @@
     <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></symbol>
     <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2z"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></symbol>
+    <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.25"/><circle cx="6" cy="19" r="2.25"/><circle cx="18" cy="12" r="2.25"/><path d="M6 7.25v9.5"/><path d="M8.25 6.2c3.5.7 6.6 2.8 7.6 5.1"/></symbol>
     <symbol id="i-code" viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></symbol>
     <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></symbol>
     <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></symbol>
@@ -155,6 +156,8 @@
     </button>
 
     <div class="composer-shell">
+      <div class="composer-stack">
+      <div class="toasts" id="toasts"></div>
       <div class="composer" id="composer">
         <div class="attach-row" id="attachRow" hidden></div>
         <div class="pending-edit-bar" id="pendingEditBar" hidden>
@@ -198,6 +201,7 @@
           </div>
         </div>
       </div>
+      </div>
       <div class="composer-hint">
         <span id="hintText">Enter 发送 · Shift + Enter 换行</span>
         <span class="hint-right" id="statusHint" role="status" aria-live="polite"></span>
@@ -208,7 +212,6 @@
 
 <div class="menu-layer" id="menuLayer" hidden></div>
 <div class="modal-layer" id="modalLayer" hidden></div>
-<div class="toasts" id="toasts"></div>
 <input type="file" id="fileInput" multiple hidden />
 
 <script type="module" src="./js/app.js"></script>

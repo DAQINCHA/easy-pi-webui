@@ -817,9 +817,13 @@ html[data-mode="system"] .theme-mode-system { display: block; }
 
 .to-bottom {
   position: absolute;
-  left: 50%;
+  /* 不用 left:50% + translateX(-50%)：出场动画 rise 会改写 transform，
+     第一帧只剩 left:50%，按钮会先偏右半个宽度，动画结束再跳回居中。 */
+  left: 0;
+  right: 0;
+  margin-left: auto;
+  margin-right: auto;
   bottom: 132px;
-  transform: translateX(-50%);
   width: 32px; height: 32px;
   display: grid; place-items: center;
   border-radius: 0;
@@ -1356,9 +1360,14 @@ html[data-mode="system"] .theme-mode-system { display: block; }
   padding: 0 24px calc(14px + env(safe-area-inset-bottom));
   background: transparent;
 }
-.composer {
+/* 与输入框同宽同中：通知叠在输入框上方 16px，随主栏和输入框变高走，不必量 viewport。 */
+.composer-stack {
+  position: relative;
+  width: 100%;
   max-width: var(--thread-max);
   margin: 0 auto;
+}
+.composer {
   padding: 10px 10px 8px;
   border-radius: 0;
   border: 2px solid var(--ink);
@@ -1877,13 +1886,24 @@ textarea.field { height: auto; min-height: 110px; padding: 9px 11px; resize: ver
 .workspace-menu .picker-btn {
   margin-bottom: 8px;
   border: 2px solid var(--ink);
-  color: var(--accent-fg);
+  background: var(--paper);
+  color: var(--text-1);
 }
 .workspace-menu .picker-btn:hover,
 .workspace-menu .picker-btn:focus-visible {
-  background: var(--bg-hover);
-  color: #111111;
+  background: var(--accent);
+  color: var(--accent-fg);
   border-color: var(--ink);
+}
+.workspace-menu .picker-btn:disabled,
+.workspace-menu .picker-btn:disabled:hover,
+.workspace-menu .picker-btn:disabled:focus-visible {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--ink);
+  opacity: 1;
+  filter: none;
+  pointer-events: none;
 }
 
 .options { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
@@ -1920,10 +1940,10 @@ textarea.field { height: auto; min-height: 110px; padding: 9px 11px; resize: ver
 /* ----------------------------- toasts ----------------------------- */
 
 .toasts {
-  position: fixed;
-  left: 50%;
-  bottom: calc(104px + env(safe-area-inset-bottom));
-  transform: translateX(-50%);
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 16px);
   z-index: 90;
   display: flex;
   flex-direction: column;
@@ -1940,7 +1960,7 @@ textarea.field { height: auto; min-height: 110px; padding: 9px 11px; resize: ver
   color: var(--text-1);
   font-size: 12.5px;
   animation: pop .18s var(--ease-spring);
-  max-width: min(420px, calc(100vw - 32px));
+  max-width: min(420px, 100%);
 }
 .toast.error { border-color: color-mix(in srgb, var(--red) 40%, var(--border)); color: var(--diff-del-fg); }
 

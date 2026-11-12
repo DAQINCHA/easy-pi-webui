@@ -4,10 +4,10 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-const SOURCE = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "..", "public/js/app.js"),
-  "utf8",
-);
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const SOURCE = readFileSync(join(ROOT, "public/js/app.js"), "utf8");
+const HTML = readFileSync(join(ROOT, "public/index.html"), "utf8");
+const CSS = readFileSync(join(ROOT, "public/styles.css"), "utf8");
 
 function functionSource(name) {
   const start = SOURCE.indexOf("function " + name + "(");
@@ -37,9 +37,12 @@ describe("message action buttons", () => {
     const names = acts(source);
     assert.deepEqual(names, ["copy-user", "edit-user", "branch-user"]);
     assert.match(source, /data-act="copy-user"/);
-    assert.match(source, /ICON\("copy"\) \+ "复制/);
-    assert.match(source, /forkButton\("edit-user".*"编辑"/);
-    assert.match(source, /forkButton\("branch-user".*"创建分支"/);
+    assert.ok(source.includes('ICON("copy") + "复制内容</button>'));
+    assert.match(source, /forkButton\("edit-user".*"编辑内容"[\s\S]*"edit"\)/);
+    assert.match(source, /forkButton\("branch-user".*"创建分支"[\s\S]*"branch"\)/);
+    assert.match(source, /aria-label="复制内容"/);
+    assert.ok(!source.includes('ICON("copy") + "复制</button>'));
+    assert.doesNotMatch(source, /forkButton\("edit-user".*"编辑",/);
     assert.equal(source.includes("retry-user"), false);
     assert.equal(source.includes("retry-bot"), false);
     assert.equal(source.includes("clone-bot"), false);
@@ -54,9 +57,10 @@ describe("message action buttons", () => {
     const names = acts(source);
     assert.deepEqual(names, ["copy-bot", "retry-bot", "clone-bot"]);
     assert.match(source, /data-act="copy-bot"/);
-    assert.match(source, /ICON\("copy"\) \+ "复制/);
-    assert.match(source, /forkButton\("retry-bot".*"重新生成"/);
-    assert.match(source, /forkButton\("clone-bot".*"创建分支"/);
+    assert.ok(source.includes('ICON("copy") + "复制内容</button>'));
+    assert.match(source, /forkButton\("retry-bot".*"重新生成"[\s\S]*"refresh"\)/);
+    assert.match(source, /forkButton\("clone-bot".*"创建分支"[\s\S]*"branch"\)/);
+    assert.match(source, /aria-label="复制内容"/);
     assert.match(source, /ctx\.canClone && ctx\.regenEntryId/);
     assert.equal(source.includes("alternate-bot"), false);
     assert.equal(source.includes("另开分支"), false);
@@ -85,5 +89,27 @@ describe("message action buttons", () => {
     assert.equal(SOURCE.includes("另开分支"), false);
     assert.equal(SOURCE.includes("另开方案"), false);
     assert.equal(SOURCE.includes("已另开"), false);
+  });
+
+  it("puts shared linear icons on every message action and keeps copy feedback from dropping the icon", () => {
+    const fork = functionSource("forkButton");
+    assert.match(fork, /icon \? ICON\(icon\) : ""/);
+    assert.match(fork, /aria-label="' \+ escapeHtml\(label\) \+ '"/);
+    assert.match(fork, /disabled \? " disabled" : ""/);
+    assert.match(HTML, /symbol id="i-copy"/);
+    assert.match(HTML, /symbol id="i-edit"/);
+    assert.match(HTML, /symbol id="i-refresh"/);
+    assert.match(HTML, /symbol id="i-branch"/);
+    assert.match(SOURCE, /const ICON = \(name\) => '<svg aria-hidden="true">/);
+    assert.match(CSS, /\.action svg\s*\{\s*width:\s*13px;\s*height:\s*13px;/);
+
+    const copyHandler = SOURCE.slice(SOURCE.indexOf('const action = event.target.closest("[data-act]")'));
+    const end = copyHandler.indexOf("el.messages.addEventListener(");
+    const body = copyHandler.slice(0, end > 0 ? end : 1200);
+    assert.match(body, /toast\("已复制"\)/);
+    assert.match(body, /toast\("复制失败", "error"\)/);
+    assert.doesNotMatch(body, /textContent\s*=\s*"复制"/);
+    assert.doesNotMatch(body, /textContent\s*=\s*"已复制"/);
+    assert.match(SOURCE, /data-copy[\s\S]{0,400}textContent = "已复制"[\s\S]{0,120}textContent = "复制"/);
   });
 });
