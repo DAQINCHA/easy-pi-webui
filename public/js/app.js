@@ -1,4 +1,11 @@
 import { renderMarkdown, escapeHtml } from "./markdown.js";
+import {
+  connectionLabel,
+  createTaskState,
+  describeTask,
+  reduceTaskState,
+  shouldNotifyDone,
+} from "./task-status.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -99,6 +106,7 @@ const state = {
   slash: null,
   activity: "",
   railActive: null,
+  task: createTaskState(),
 };
 
 const ICON = (name) => '<svg aria-hidden="true"><use href="#i-' + name + '"/></svg>';
@@ -633,6 +641,10 @@ async function resetToWorkspace(data) {
   state.toolOpen.clear();
 
   state.sessions = data.sessions || [];
+  state.task = createTaskState();
+  state.turnFiles = new Map();
+  state.turnSummary = null;
+  state.turnSummaryOpen = false;
   renderAttachments();
   renderThread();
   renderSessions();
@@ -781,6 +793,32 @@ function updateSendState() {
 
 function setStatus(text) {
   el.statusHint.textContent = text || "";
+}
+
+function dispatchTask(event) {
+  state.task = reduceTaskState(state.task, event);
+}
+
+function syncConnectionHint(extra) {
+  if (state.needsWorkspace) {
+    setStatus("请先选择工作目录");
+    return;
+  }
+  const text = connectionLabel(state.task, { needsWorkspace: false, bootError: extra === "后端未连接" });
+  if (state.task.connection !== "open") {
+    setStatus(text || extra || "");
+    return;
+  }
+  setStatus(extra || text || "已连接");
+}
+
+function syncTurnFilesFromTask() {
+  const files = (state.task && state.task.turnFiles) || [];
+  if (!files.length) return;
+  for (const file of files) {
+    if (!state.turnFiles.has(file)) state.turnFiles.set(file, "write");
+  }
+  if (!state.streaming) state.turnSummary = buildTurnSummary();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1427,7 +1465,21 @@ function turnFileDir(file) {
   return dir;
 }
 
+function renderTurnOutcome() {
+  const view = describeTask(state.task);
+  if (state.streaming) return;
+  if (!state.task || !state.task.settledKind || !view.summary) return;
+  const node = document.createElement("div");
+  node.className = "turn-status is-" + view.tone;
+  node.setAttribute("role", "status");
+  node.setAttribute("aria-live", view.settledFresh ? view.live : "off");
+  node.setAttribute("aria-atomic", "true");
+  node.textContent = view.summary;
+  el.messages.appendChild(node);
+}
+
 function renderTurnSummary() {
+  renderTurnOutcome();
   const summary = state.turnSummary;
   if (!summary || !summary.files.length) return;
   const files = summary.files;
@@ -1501,6 +1553,7 @@ function renderThread() {
   el.empty.hidden = state.messages.length > 0 || state.streaming;
   // 摘要不写进 state.messages，每次重绘都重新插入一次，天然避免重复。
   renderTurnSummary();
+  updateWorking();
   renderRail();
   scrollBottom(true);
 }
@@ -1657,22 +1710,36 @@ function appendToThread(nodes) {
 
 // 整轮工作期间一直显示，不再因为「有流式内容」就隐掉又冒出来。
 function updateWorking() {
+  const view = describeTask(state.task);
+  const showBar =
+    view.showSpinner ||
+    view.waiting ||
+    view.phase === "disconnected" ||
+    view.phase === "unknown";
   const existing = el.messages.querySelector(".working");
-  if (!state.streaming) {
+  if (!showBar) {
     if (existing) existing.remove();
     return;
   }
-  const label = state.activity || "pi 正在工作";
-  if (existing) {
-    existing.querySelector(".working-label").textContent = label;
-    if (el.messages.lastElementChild !== existing) el.messages.appendChild(existing);
-    return;
+  let node = existing;
+  if (!node) {
+    node = document.createElement("div");
+    node.className = "working";
+    node.setAttribute("role", "status");
+    node.innerHTML =
+      '<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="working-label"></span>';
+    el.messages.appendChild(node);
+    scrollBottom();
   }
-  const node = document.createElement("div");
-  node.className = "working";
-  node.innerHTML = '<span class="dots"><i></i><i></i><i></i></span><span class="working-label">' + escapeHtml(label) + "</span>";
-  el.messages.appendChild(node);
-  scrollBottom();
+  node.classList.toggle("no-spin", !view.showSpinner);
+  node.classList.remove("is-busy", "is-wait", "is-error", "is-warn", "is-done", "is-stop", "is-idle");
+  node.classList.add("is-" + (view.tone || "idle"));
+  node.setAttribute("aria-live", view.live || "polite");
+  node.setAttribute("aria-atomic", "true");
+  const labelNode = node.querySelector(".working-label");
+  const label = view.label || state.activity || "正在处理你的请求";
+  if (labelNode && labelNode.textContent !== label) labelNode.textContent = label;
+  if (el.messages.lastElementChild !== node) el.messages.appendChild(node);
 }
 
 function addNotice(text) {
@@ -1715,7 +1782,14 @@ function applySnapshot(snapshot) {
     }
     state.attachments = [];
     renderAttachments();
+    dispatchTask({ type: "__session", key: snapshot.key });
+    state.turnFiles = new Map();
+    state.turnSummary = null;
+    state.turnSummaryOpen = false;
   }
+  dispatchTask({ type: "__connection", status: "open" });
+  dispatchTask({ type: "__hydrate", snapshot });
+  syncTurnFilesFromTask();
   state.sessions = snapshot.sessions || state.sessions;
 
   if (state.file) {
@@ -1733,7 +1807,7 @@ function applySnapshot(snapshot) {
   updateStats();
   updateSendState();
   updateWorking();
-  setStatus("已连接");
+  syncConnectionHint("已连接");
 
   for (const request of snapshot.pendingUi || []) showUiDialog(request);
 }
@@ -1767,15 +1841,19 @@ function connectStream() {
   let helloed = false;
   // hello 到达之前的事件都是断线重连的历史回放，不给它们补发通知。
   state.replaying = true;
+  dispatchTask({ type: "__replay", on: true });
   const source = new EventSource("/api/events?key=" + encodeURIComponent(state.key));
   state.es = source;
   source.addEventListener("hello", (event) => {
     const data = parseJson(event.data || "{}") || {};
     state.lastSeq = data.seq || 0;
     state.replaying = false;
+    dispatchTask({ type: "__replay", on: false });
+    dispatchTask({ type: "__connection", status: "open" });
     if (helloed) resync();
     helloed = true;
-    setStatus("已连接");
+    syncConnectionHint("已连接");
+    updateWorking();
   });
   source.addEventListener("pi", (event) => {
     const record = parseJson(event.data);
@@ -1786,7 +1864,9 @@ function connectStream() {
   });
   source.onerror = () => {
     state.replaying = true;
-    setStatus("连接中断，正在重连…");
+    dispatchTask({ type: "__connection", status: "reconnecting" });
+    syncConnectionHint();
+    updateWorking();
   };
 }
 
@@ -2067,10 +2147,11 @@ async function refreshSessions() {
 /* ------------------------------------------------------------------ */
 
 function handleEvent(event) {
+  dispatchTask(event);
   switch (event.type) {
     case "agent_start":
       state.streaming = true;
-      state.activity = "pi 正在工作";
+      state.activity = "正在处理你的请求";
       // 每轮重新统计「本轮改了什么」。
       state.turnFiles = new Map();
       state.turnSummary = null;
@@ -2104,7 +2185,7 @@ function handleEvent(event) {
       if ((event.toolName === "edit" || event.toolName === "write") && args.path) {
         state.turnFiles.set(args.path, event.toolName);
       }
-      state.activity = "运行 " + event.toolName + "…";
+      state.activity = describeTask(state.task).label || "正在使用工具";
       updateToolDom();
       updateWorking();
       break;
@@ -2126,7 +2207,7 @@ function handleEvent(event) {
         durationMs: event.durationMs,
         done: true,
       });
-      state.activity = "pi 正在工作";
+      state.activity = describeTask(state.task).label || "正在处理你的请求";
       updateToolDom();
       updateWorking();
       break;
@@ -2141,19 +2222,19 @@ function handleEvent(event) {
       updateWorking();
       updateHeader();
       collapseTools();
-      // 工具卡片收起之后才算本轮摘要；历史回放和主动停止都不补通知。
-      const replayed = state.replaying;
-      const aborted = Boolean(event.aborted);
+      // 工具卡片收起之后才算本轮摘要；历史回放、主动停止、真正失败都不补完成通知。
+      const notifyDone = shouldNotifyDone(state.task);
       // 先响再刷新：下面的重绘/刷新万一抛错，不至于把提示音一并吞掉。
-      if (!replayed && !aborted) playDoneSound();
+      if (notifyDone) playDoneSound();
+      syncTurnFilesFromTask();
       state.turnSummary = buildTurnSummary();
       renderSessions();
       markSeen();
       refreshStats();
       refreshSessions();
-      // 新一轮的用户消息会产生新 entryId；重绘时一并插入摘要。
+      // 新一轮的用户消息会产生新 entryId；重绘时一并插入摘要和本轮状态。
       refreshForkMessages();
-      if (!replayed && !aborted) maybeNotifyDone();
+      if (notifyDone) maybeNotifyDone();
       break;
     }
 
@@ -2206,7 +2287,7 @@ function handleEvent(event) {
       updateHeader();
       // 删除会话、服务端主动回收等正常关闭不弹错误
       if (event.intentional) break;
-      setStatus("pi 进程已退出");
+      syncConnectionHint("pi 进程已退出");
       toast("pi 进程已退出，重新打开会话即可恢复", "error");
       break;
 
@@ -2245,7 +2326,7 @@ function applyLiveUpdate(update) {
       break;
     case "toolcall_start":
       blocks[index] = { type: "toolCall", id: update.id, name: update.toolName, argsJson: "", arguments: null };
-      state.activity = "调用 " + update.toolName + "…";
+      state.activity = describeTask(state.task).label || "正在使用工具";
       break;
     case "toolcall_delta":
       if (blocks[index]) blocks[index].argsJson = (blocks[index].argsJson || "") + (update.delta || "");
@@ -3153,7 +3234,7 @@ function handleUiRequest(request) {
     return;
   }
   if (request.method === "setStatus") {
-    if (request.statusText) setStatus(request.statusText);
+    if (request.statusText && state.task.connection === "open") setStatus(request.statusText);
     return;
   }
   if (request.method === "setWidget" || request.method === "setWorkingMessage") return;
@@ -3175,14 +3256,18 @@ function showUiDialog(request) {
     if (timer) clearTimeout(timer);
     if (responded) return;
     responded = true;
+    dispatchTask({ type: "__ui_resolved", id, cancelled: true });
     respondUi(id, { cancelled: true });
+    updateWorking();
   };
 
   const finish = (payload) => {
     responded = true;
     if (timer) clearTimeout(timer);
+    dispatchTask({ type: "__ui_resolved", id, cancelled: Boolean(payload && payload.cancelled) });
     respondUi(id, payload);
     if (dialog) dialog.close();
+    updateWorking();
   };
 
   if (request.timeout) {
@@ -3768,7 +3853,9 @@ async function boot() {
     if (existing) await openSession(existing.file);
     else await newSession();
   } catch (error) {
-    setStatus("后端未连接");
+    dispatchTask({ type: "__connection", status: "down" });
+    syncConnectionHint("后端未连接");
+    updateWorking();
     toast("无法连接后端：" + error.message, "error");
   }
 }
