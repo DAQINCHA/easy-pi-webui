@@ -2427,12 +2427,29 @@ async function handleForkAction(act, button) {
   }
 }
 
+const NOTIFY_KEY = "piwebui.notify";
+
 function readNotifyPref() {
   try {
     return localStorage.getItem(NOTIFY_KEY) === "1";
   } catch {
     return false;
   }
+}
+
+function notificationPermissionState() {
+  if (!("Notification" in window)) return "unsupported";
+  try {
+    const permission = Notification.permission;
+    if (permission === "granted" || permission === "denied" || permission === "default") return permission;
+    return "unsupported";
+  } catch {
+    return "unsupported";
+  }
+}
+
+function notifyEnabled() {
+  return readNotifyPref() && notificationPermissionState() === "granted";
 }
 
 function writeNotifyPref(on) {
@@ -3561,12 +3578,32 @@ async function setPinned(file, pinned) {
   }
 }
 
+function notifyBtnLabel(on) {
+  if (on) return "完成时通知：开";
+  if (!readNotifyPref()) return "完成时通知：关";
+  const permission = notificationPermissionState();
+  if (permission === "unsupported") return "完成时通知：关（当前浏览器不支持）";
+  if (permission === "denied") return "完成时通知：关（权限已拒绝）";
+  return "完成时通知：关（尚未授权）";
+}
+
 function updateNotifyBtn() {
-  const on = readNotifyPref();
-  const label = on ? "完成时通知：开" : "完成时通知：关";
+  if (!el.notifyBtn) return;
+  const on = notifyEnabled();
+  const label = notifyBtnLabel(on);
   el.notifyBtn.classList.toggle("on", on);
   el.notifyBtn.title = label;
   el.notifyBtn.setAttribute("aria-label", label);
+  el.notifyBtn.setAttribute("aria-pressed", on ? "true" : "false");
+}
+
+function watchNotifyPermission() {
+  if (!navigator.permissions || typeof navigator.permissions.query !== "function") return;
+  Promise.resolve(navigator.permissions.query({ name: "notifications" }))
+    .then((status) => {
+      if (status) status.onchange = () => updateNotifyBtn();
+    })
+    .catch(() => {});
 }
 
 /* ------------------------------------------------------------------ */
@@ -3905,7 +3942,7 @@ function applyTheme(mode) {
     /* ignore */
   }
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", resolved === "dark" ? "#181c22" : "#f7f9fc");
+  if (meta) meta.setAttribute("content", resolved === "dark" ? "#000000" : "#ffffff");
 }
 
 function openThemeMenu(anchor) {
@@ -4364,6 +4401,7 @@ async function boot() {
   autosize();
   updateSendState();
   updateNotifyBtn();
+  watchNotifyPermission();
 
   try {
     const bootstrap = await api("/api/bootstrap");
