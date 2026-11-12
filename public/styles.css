@@ -359,10 +359,10 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   border-radius: 0;
   border: 2px solid var(--ink);
   background: var(--paper);
+  box-shadow: var(--shadow-soft);
   transition: background .18s var(--ease), border-color .18s var(--ease);
 }
 .search:hover { background: var(--paper); }
-.search:focus-within { background: var(--paper); border-color: var(--ink); box-shadow: var(--shadow-soft); }
 .search svg { width: 15px; height: 15px; color: var(--text-4); flex: none; }
 .search input {
   flex: 1; min-width: 0;
@@ -416,6 +416,13 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 }
 
 
+/* 滑块淡入淡出：::-webkit-scrollbar-thumb 本身通常不能 transition。
+   把可插值的 <color> 注册在滚动容器上过渡，thumb 只引用该变量。 */
+@property --session-scroll-thumb {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
 .session-scroll {
   flex: 1;
   min-height: 0;
@@ -425,6 +432,35 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   margin: 2px -10px 0;
   padding: 2px 0 8px 10px;
   scrollbar-gutter: stable;
+  --session-scroll-thumb: transparent;
+  transition: --session-scroll-thumb 200ms ease;
+}
+.session-scroll.is-scrolling { --session-scroll-thumb: var(--scroll-thumb); }
+@media (prefers-reduced-motion: reduce) {
+  .session-scroll { transition: none; }
+}
+/* 不要在 Chromium 路径写 scrollbar-width/color：一旦出现，会改走原生圆头粗滑块，
+   并忽略下面的 ::-webkit-scrollbar 细直角样式。显隐只改容器上的自定义色。 */
+.session-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.session-scroll::-webkit-scrollbar-track { background: transparent; }
+.session-scroll::-webkit-scrollbar-thumb {
+  background: var(--session-scroll-thumb);
+  border: 3px solid transparent;
+  border-radius: 0;
+  background-clip: content-box;
+}
+.session-scroll.is-scrolling::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+  border: 3px solid transparent;
+  border-radius: 0;
+  background-clip: content-box;
+}
+/* 仅非 webkit 引擎（如 Firefox）用标准属性引用同一变量，避免影响 Chromium。 */
+@supports not selector(::-webkit-scrollbar) {
+  .session-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--session-scroll-thumb) transparent;
+  }
 }
 
 .session-group-label {
@@ -513,11 +549,12 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   border-radius: 0;
   color: var(--text-4);
   background: transparent;
+  border: 2px solid transparent;
   opacity: 0;
-  transition: opacity .15s var(--ease), background .15s var(--ease), color .15s var(--ease);
+  z-index: 1;
+  transition: opacity .15s var(--ease), background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
 }
 .session-action svg { width: 14px; height: 14px; }
-.session-action:hover { background: var(--bg-elev-3); color: var(--text-1); }
 /* 三个按钮从右到左：置顶、归档、「…」 */
 .session-action.pin { right: 4px; }
 .session-action.archive { right: 28px; }
@@ -547,6 +584,37 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .session-wrap.archived .session-item { opacity: .6; }
 .session-wrap.archived .session-item:hover,
 .session-wrap.archived .session-item.active { opacity: 1; }
+
+/* 已激活且非运行中：右侧操作图标默认可见，用反相前景，不必先悬停。 */
+.session-wrap:has(.session-item.active):not(.running) .session-action {
+  opacity: 1;
+  color: var(--text-selected);
+}
+.session-wrap:has(.session-item.active):not(.running) .session-action.pin.on {
+  color: var(--text-selected);
+}
+.session-wrap:has(.session-item.active):not(.running) .session-item { padding-right: 76px; }
+.session-wrap:has(.session-item.active):not(.running) .session-item .m { display: none; }
+.session-wrap.archived:has(.session-item.active):not(.running) .session-item { padding-right: 28px; }
+/* 键盘聚焦时同样露出图标并给标题腾位，不改变未激活行默认隐藏策略。 */
+.session-wrap:focus-within:not(.running) .session-action { opacity: 1; }
+.session-wrap:focus-within:not(.running) .session-item { padding-right: 76px; }
+.session-wrap:focus-within:not(.running) .session-item .m { display: none; }
+.session-wrap.archived:focus-within:not(.running) .session-item { padding-right: 28px; }
+/* 悬停/焦点必须写在选中前景规则之后，并覆盖 pin.on 与 :has(...) 更高优先级，
+   否则已选中行会保持 --text-selected（浅色模式为白字），黄底上看不清。 */
+.session-action:hover,
+.session-action:focus-visible,
+.session-action.pin.on:hover,
+.session-action.pin.on:focus-visible,
+.session-wrap:has(.session-item.active):not(.running) .session-action:hover,
+.session-wrap:has(.session-item.active):not(.running) .session-action:focus-visible,
+.session-wrap:has(.session-item.active):not(.running) .session-action.pin.on:hover,
+.session-wrap:has(.session-item.active):not(.running) .session-action.pin.on:focus-visible {
+  background: var(--bg-hover);
+  color: #111111;
+  border-color: var(--ink);
+}
 
 @media (hover: none) {
   /* 触屏没有悬停：操作按钮常显、时间戳让位；正在跑的会话反过来。 */

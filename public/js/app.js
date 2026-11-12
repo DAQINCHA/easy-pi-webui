@@ -4378,6 +4378,25 @@ function bindEvents() {
 /* boot                                                                */
 /* ------------------------------------------------------------------ */
 
+const SESSION_SCROLLBAR_HIDE_MS = 1000;
+let sessionScrollbarHideTimer = 0;
+let sessionScrollbarBound = false;
+
+function bindSessionListScrollbar() {
+  if (sessionScrollbarBound || !el.sessionList) return;
+  sessionScrollbarBound = true;
+  const scroller = el.sessionList;
+  const onScroll = () => {
+    scroller.classList.add("is-scrolling");
+    if (sessionScrollbarHideTimer) clearTimeout(sessionScrollbarHideTimer);
+    sessionScrollbarHideTimer = setTimeout(() => {
+      scroller.classList.remove("is-scrolling");
+      sessionScrollbarHideTimer = 0;
+    }, SESSION_SCROLLBAR_HIDE_MS);
+  };
+  scroller.addEventListener("scroll", onScroll, { passive: true });
+}
+
 async function boot() {
   bindEvents();
   registerServiceWorker();
@@ -4402,6 +4421,7 @@ async function boot() {
   updateSendState();
   updateNotifyBtn();
   watchNotifyPermission();
+  bindSessionListScrollbar();
 
   try {
     const bootstrap = await api("/api/bootstrap");
