@@ -242,6 +242,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   height: 100vh;
   height: 100dvh;
   background: var(--bg-app);
+  /* 网页顶边贯穿侧栏+主区，与 PWA 系统标题栏分开，并让侧栏竖线有顶边衔接。 */
+  border-top: 2px solid var(--ink);
 }
 
 .app.sidebar-hidden { grid-template-columns: 0 minmax(0, 1fr); }
@@ -1266,8 +1268,10 @@ html[data-mode="system"] .theme-mode-system { display: block; }
 .composer-shell {
   position: relative;
   z-index: 18;
-  padding: 10px 24px calc(14px + env(safe-area-inset-bottom));
-  background: var(--bg-chat);
+  /* 去掉输入框上方的实心留白条（D 把渐变改成了实底，看起来像多一块遮罩）。
+     输入框本身和底部安全间距保留；不改滚动容器，也不做向上叠加的伪元素。 */
+  padding: 0 24px calc(14px + env(safe-area-inset-bottom));
+  background: transparent;
 }
 .composer {
   max-width: var(--thread-max);
@@ -1787,7 +1791,17 @@ textarea.field { height: auto; min-height: 110px; padding: 9px 11px; resize: ver
 }
 .ws-menu-list { display: flex; flex-direction: column; gap: 2px; }
 .ws-menu-empty { padding: 10px 9px 8px; font-size: 11.5px; color: var(--text-4); }
-.workspace-menu .picker-btn { margin-bottom: 8px; }
+.workspace-menu .picker-btn {
+  margin-bottom: 8px;
+  border: 2px solid var(--ink);
+  color: var(--accent-fg);
+}
+.workspace-menu .picker-btn:hover,
+.workspace-menu .picker-btn:focus-visible {
+  background: var(--bg-hover);
+  color: #111111;
+  border-color: var(--ink);
+}
 
 .options { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .options button {
@@ -1941,6 +1955,7 @@ body.resizing .sidebar { transition: none; }
     transform: translateX(-102%);
     box-shadow: var(--shadow-drawer);
     z-index: 60;
+    border-top: 2px solid var(--ink);
   }
   .app.sidebar-open .sidebar { transform: translateX(0); }
   .app.sidebar-hidden .sidebar { transform: translateX(-102%); opacity: 1; }
@@ -1954,7 +1969,7 @@ body.resizing .sidebar { transition: none; }
   }
   .app.sidebar-open .scrim { opacity: 1; pointer-events: auto; }
   .thread-inner { padding: 18px 16px 18px; }
-  .composer-shell { padding: 8px 12px calc(10px + env(safe-area-inset-bottom)); }
+  .composer-shell { padding: 0 12px calc(10px + env(safe-area-inset-bottom)); }
   .composer { border-radius: 0; }
   .bubble { max-width: 90%; }
   .empty { padding-top: 8vh; }

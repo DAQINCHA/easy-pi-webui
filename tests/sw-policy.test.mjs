@@ -9,7 +9,7 @@ const source = readFileSync(join(root, "public/sw.js"), "utf8");
 
 describe("service worker cache policy", () => {
   it("uses a versioned cache name and does not intercept /api/*", () => {
-    assert.match(source, /const CACHE_NAME = "pi-webui-v15"/);
+    assert.match(source, /const CACHE_NAME = "pi-webui-v16"/);
     assert.match(source, /url\.pathname\.startsWith\("\/api\/"\)/);
     const fetchHandler = source.slice(source.indexOf('self.addEventListener("fetch"'));
     const apiGuard = fetchHandler.indexOf('url.pathname.startsWith("/api/")');
