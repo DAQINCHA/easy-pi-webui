@@ -4976,6 +4976,7 @@ function applyTheme(mode) {
 const SKINS = [
   { id: "classic", label: "经典柠黄" },
   { id: "paper", label: "纸上工作室" },
+  { id: "mint", label: "薄荷陶瓷" },
 ];
 
 function currentSkin() {

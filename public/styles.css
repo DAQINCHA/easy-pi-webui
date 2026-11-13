@@ -506,14 +506,14 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   position: relative;
   transition: background .15s var(--ease);
 }
-/* 行悬停时：标题、时间戳、右侧图标、旋转器全部跟进悬停前景色。
-   放在选中前景规则之后，确保盖过 .active 的显式子色。 */
-.session-wrap:hover .session-item,
-.session-wrap:hover .session-item .t,
-.session-wrap:hover .session-item .m,
-.session-wrap:hover .session-action,
-.session-wrap:hover .session-action.pin.on,
-.session-wrap:hover .session-spin {
+/* 行悬停（仅未选中行）：标题、时间戳、图标、旋转器切到悬停前景色。
+   选中行保持反相底与 --text-selected，不参与悬停换色，否则前景色压在选中底上会糊。 */
+.session-wrap:not(:has(.session-item.active)):hover .session-item,
+.session-wrap:not(:has(.session-item.active)):hover .session-item .t,
+.session-wrap:not(:has(.session-item.active)):hover .session-item .m,
+.session-wrap:not(:has(.session-item.active)):hover .session-action,
+.session-wrap:not(:has(.session-item.active)):hover .session-action.pin.on,
+.session-wrap:not(:has(.session-item.active)):hover .session-spin {
   color: var(--accent-fg);
 }
 .session-item:hover { background: var(--bg-hover); }
@@ -2552,4 +2552,193 @@ html[data-skin="paper"][data-theme="dark"] {
   --scroll-thumb: #57452f;
   --scroll-thumb-hover: #d97757;
   --scrim: #0d0a07d9;
+}
+
+/* ------------------------ 皮肤：薄荷陶瓷 ------------------------
+ * 薄荷绿奶油底 + 深绿点缀 + 桃粉交互件，陶艺浮雕质感。
+ * 阴影从硬偏移换成「内高光 + 软投影」的瓷面语言；圆角整体放大到 16~28px。
+ * 浅色取自 skins preview/mint-ceramic.html，深色为同色系反推。
+ * 预览页的背景渐变暂未实现，v1 用平色近似。 */
+html[data-skin="mint"] {
+  --radius: 16px;
+  --radius-lg: 28px;
+  --border-width: 1px;
+}
+
+/* 陶瓷的结构性形状：标识与头像成正圆，大容器吃大圆角 */
+html[data-skin="mint"] .brand-mark,
+html[data-skin="mint"] .msg .avatar {
+  border-radius: 50%;
+}
+html[data-skin="mint"] .sidebar,
+html[data-skin="mint"] .thread-inner,
+html[data-skin="mint"] .composer {
+  border-radius: var(--radius-lg);
+}
+
+/* 发送键保持预览的桃粉实心，而不是深绿 */
+html[data-skin="mint"] .send {
+  background: #f3c2b4;
+  color: #3a241c;
+  border-color: transparent;
+}
+html[data-skin="mint"] .send:hover { background: #efa996; }
+html[data-skin="mint"] .send:active { background: #e89883; }
+
+html[data-skin="mint"][data-theme="light"] {
+  color-scheme: light;
+
+  --ink: #1a2a24;
+  --paper: #f7faf7;
+
+  --bg-app: #e7eee8;
+  --bg-chat: #e7eee8;
+  --bg-sidebar: #f4f7f4;
+  --bg-elev: #f7faf7;
+  --bg-elev-2: #f4f7f4;
+  --bg-elev-3: #e3ece4;
+  --bg-code: #eef3ee;
+  --bg-inline-code: #21564a14;
+  --code-head: #21564a0d;
+  --brand-tile: #d9ebe3;
+
+  /* 悬停 = 深绿底 + 奶白字，与发送键同一份组件语义 */
+  --bg-hover: #21564a;
+  --bg-selected: #fde8df;
+  --text-selected: #3a241c;
+  --text-selected-muted: #7a5c4e;
+
+  --text-1: #1a2a24;
+  --text-2: #2b4a40;
+  --text-3: #3f564e;
+  --text-4: #5a7268;
+  --text-disabled: #8aa096;
+
+  --border-soft: #dde7de;
+  --border: #c9d8ce;
+  --border-strong: #b7c9bd;
+
+  --accent: #21564a;
+  --accent-fg: #f7faf7;
+  --accent-hover: #1a463d;
+  --accent-pressed: #14352e;
+  --focus-ring: #21564a;
+  --blue: #21564a;
+  --link: #21564a;
+  --glow: #21564a;
+
+  --bg-user: #fde8df;
+  --text-user: #3a241c;
+  --user-bubble-border: #fde8df;
+
+  --green: #2e6b46;
+  --red: #b5483a;
+  --yellow: #a3762a;
+  --purple: #6b5a8c;
+  --on-danger: #f7faf7;
+
+  --diff-add-bg: #e2ecdd;
+  --diff-add-fg: #2e6b46;
+  --diff-del-bg: #f3ddd6;
+  --diff-del-fg: #b5483a;
+
+  --tok-kw: #21564a;
+  --tok-str: #2e6b46;
+  --tok-num: #a3762a;
+
+  --shadow-color: rgba(70, 100, 90, 0.14);
+  --shadow-pop: 0 8px 20px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  --shadow-composer: 0 10px 22px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  --shadow-soft: 0 3px 8px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  --shadow-accent: 0 3px 8px rgba(140, 80, 60, 0.18), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  --shadow-accent-strong: 0 6px 16px rgba(140, 80, 60, 0.22), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  --shadow-raised: 0 6px 14px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  --shadow-card: 0 6px 14px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95), inset 0 -2px 5px rgba(70, 110, 95, 0.08);
+  --shadow-modal: 0 14px 30px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  --shadow-drawer: 10px 0 24px var(--shadow-color);
+  --overlay-btn: #1a2a24;
+  --on-overlay: #f7faf7;
+  --ring-track: #1a2a2433;
+  --scroll-thumb: #b7c9bd;
+  --scroll-thumb-hover: #21564a;
+  --scrim: #10201ab3;
+}
+
+html[data-skin="mint"][data-theme="dark"] {
+  color-scheme: dark;
+
+  --ink: #e2ece5;
+  --paper: #16211c;
+
+  --bg-app: #101814;
+  --bg-chat: #101814;
+  --bg-sidebar: #131d18;
+  --bg-elev: #16211c;
+  --bg-elev-2: #182319;
+  --bg-elev-3: #0c1410;
+  --bg-code: #182219;
+  --bg-inline-code: #e2ece51f;
+  --code-head: #e2ece514;
+  --brand-tile: #cfe3d8;
+
+  /* 悬停 = 亮薄荷底 + 深字，浅色模式深绿悬停的夜版 */
+  --bg-hover: #7fc8a8;
+  --bg-selected: #3c2b24;
+  --text-selected: #f2dfd5;
+  --text-selected-muted: #a08578;
+
+  --text-1: #e2ece5;
+  --text-2: #c8d8cd;
+  --text-3: #9db3a6;
+  --text-4: #7f958a;
+  --text-disabled: #55695f;
+
+  --border-soft: #26332c;
+  --border: #2f3f36;
+  --border-strong: #3d5146;
+
+  --accent: #7fc8a8;
+  --accent-fg: #12211b;
+  --accent-hover: #8fd4b6;
+  --accent-pressed: #5aa385;
+  --focus-ring: #7fc8a8;
+  --blue: #7fc8a8;
+  --link: #7fc8a8;
+  --glow: #7fc8a8;
+
+  --bg-user: #3c2b24;
+  --text-user: #f2dfd5;
+  --user-bubble-border: #4a362d;
+
+  --green: #8fd4a8;
+  --red: #e08a7a;
+  --yellow: #d9b36a;
+  --purple: #b3a1d4;
+  --on-danger: #12211b;
+
+  --diff-add-bg: #1e2f24;
+  --diff-add-fg: #8fd4a8;
+  --diff-del-bg: #3a241e;
+  --diff-del-fg: #e08a7a;
+
+  --tok-kw: #8fd4b6;
+  --tok-str: #8fd4a8;
+  --tok-num: #d9b36a;
+
+  --shadow-color: rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 8px 20px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
+  --shadow-composer: 0 10px 22px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
+  --shadow-soft: 0 3px 8px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
+  --shadow-accent: 0 3px 8px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.08);
+  --shadow-accent-strong: 0 6px 16px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.08);
+  --shadow-raised: 0 6px 14px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
+  --shadow-card: 0 6px 14px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06), inset 0 -2px 5px rgba(0, 0, 0, 0.2);
+  --shadow-modal: 0 14px 30px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
+  --shadow-drawer: 10px 0 24px var(--shadow-color);
+  --overlay-btn: #e2ece5;
+  --on-overlay: #12211b;
+  --ring-track: #e2ece53d;
+  --scroll-thumb: #3d5146;
+  --scroll-thumb-hover: #7fc8a8;
+  --scrim: #0d1713d9;
 }
