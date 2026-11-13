@@ -2388,3 +2388,153 @@ body.resizing .sidebar { transition: none; }
   color: var(--text-1);
   font-variant-numeric: tabular-nums;
 }
+
+/* ------------------------ 皮肤：纸上工作室 ------------------------
+ * 暖纸底 + 细线 + 赭红点缀，排版感优先于卡片感。
+ * 形状：2px 圆角、1px 细边；阴影色退成纸面同族的浅棕，几乎不可见。
+ * 浅色取自 skins preview/paper-studio.html，深色为同色系反推。 */
+html[data-skin="paper"] {
+  --radius: 2px;
+  --radius-lg: 4px;
+  --border-width: 1px;
+}
+
+html[data-skin="paper"][data-theme="light"] {
+  color-scheme: light;
+
+  --ink: #2a2018;
+  --paper: #faf6ee;
+
+  --bg-app: #f3efe6;
+  --bg-chat: #f3efe6;
+  --bg-sidebar: #f7f2e8;
+  --bg-elev: #faf6ee;
+  --bg-elev-2: #faf6ee;
+  --bg-elev-3: #ece4d2;
+  --bg-code: #f6f1e6;
+  --bg-inline-code: #2a201812;
+  --code-head: #2a20180d;
+  --brand-tile: #efe4d4;
+
+  /* 悬停 = 赭红底 + 纸色字，与发送按钮同一语言 */
+  --bg-hover: #8b2e1f;
+  --bg-selected: #efe6d6;
+  --text-selected: #211b14;
+  --text-selected-muted: #8a7764;
+
+  --text-1: #2a2018;
+  --text-2: #4a3c30;
+  --text-3: #6d5b4a;
+  --text-4: #8a7764;
+  --text-disabled: #b0a494;
+
+  --border-soft: #e0d4c0;
+  --border: #d8cbb6;
+  --border-strong: #cbb79a;
+
+  --accent: #8b2e1f;
+  --accent-fg: #faf6ee;
+  --accent-hover: #7a281b;
+  --accent-pressed: #6d2418;
+  --focus-ring: #8b2e1f;
+  --blue: #8b2e1f;
+  --link: #8b2e1f;
+  --glow: #8b2e1f;
+
+  --bg-user: #f6f1e6;
+  --text-user: #2a2018;
+  --user-bubble-border: #d8cbb6;
+
+  --green: #3d6a3a;
+  --red: #9c3226;
+  --yellow: #b98a2e;
+  --purple: #6d4a6b;
+  --on-danger: #faf6ee;
+
+  --diff-add-bg: #e7eedd;
+  --diff-add-fg: #3d6a3a;
+  --diff-del-bg: #f3e0d8;
+  --diff-del-fg: #9c3226;
+
+  --tok-kw: #8b2e1f;
+  --tok-str: #3d6a3a;
+  --tok-num: #b98a2e;
+
+  --shadow-color: #e3d8c4;
+  --overlay-btn: #2a2018;
+  --on-overlay: #f3efe6;
+  --ring-track: #2a20183d;
+  --scroll-thumb: #cbb79a;
+  --scroll-thumb-hover: #8b2e1f;
+  --scrim: #2a2018b3;
+}
+
+html[data-skin="paper"][data-theme="dark"] {
+  color-scheme: dark;
+
+  --ink: #ede4d6;
+  --paper: #211b14;
+
+  --bg-app: #191410;
+  --bg-chat: #191410;
+  --bg-sidebar: #1e1813;
+  --bg-elev: #211b14;
+  --bg-elev-2: #211b14;
+  --bg-elev-3: #14100c;
+  --bg-code: #241d16;
+  --bg-inline-code: #ede4d61f;
+  --code-head: #ede4d614;
+  --brand-tile: #2e241a;
+
+  /* 悬停 = 暖沙反相底 + 深字，与浅色模式的赪红悬停同一份组件语义 */
+  --bg-hover: #e0d2b8;
+  --bg-selected: #d8c9ad;
+  --text-selected: #211b14;
+  --text-selected-muted: #5d4b3a;
+
+  --text-1: #ede4d6;
+  --text-2: #d9ccb9;
+  --text-3: #b3a18c;
+  --text-4: #9a8871;
+  --text-disabled: #6b5d4c;
+
+  --border-soft: #3a2f24;
+  --border: #45382b;
+  --border-strong: #57452f;
+
+  --accent: #d97757;
+  --accent-fg: #211b14;
+  --accent-hover: #e08968;
+  --accent-pressed: #b95f42;
+  --focus-ring: #d97757;
+  --blue: #d97757;
+  --link: #d97757;
+  --glow: #d97757;
+
+  --bg-user: #241d16;
+  --text-user: #ede4d6;
+  --user-bubble-border: #45382b;
+
+  --green: #7fb08a;
+  --red: #d97a6a;
+  --yellow: #d9b36a;
+  --purple: #b08cc9;
+  --on-danger: #211b14;
+
+  --diff-add-bg: #24321f;
+  --diff-add-fg: #9ec99a;
+  --diff-del-bg: #3a221c;
+  --diff-del-fg: #e0968a;
+
+  --tok-kw: #e0a08c;
+  --tok-str: #9ec99a;
+  --tok-num: #d9b36a;
+
+  --shadow-color: #0d0a07;
+  --overlay-btn: #ede4d6;
+  --on-overlay: #211b14;
+  --ring-track: #ede4d63d;
+  --scroll-thumb: #57452f;
+  --scroll-thumb-hover: #d97757;
+  --scrim: #0d0a07d9;
+}

@@ -238,12 +238,16 @@ describe("skill header hover/focus text contrast", () => {
     }
   });
 
-  it("keeps AAA dark-on-yellow contrast in both light and dark themes", () => {
-    const bgs = [...CSS.matchAll(/--bg-hover:\s*(#[0-9a-fA-F]{6})/g)].map((m) => m[1].toLowerCase());
-    assert.ok(bgs.length >= 2, "light and dark both define --bg-hover");
-    for (const bg of bgs) {
-      assert.equal(bg, "#ffe600");
-      assert.ok(contrast("#111111", bg) >= 7, "dark text on " + bg + " must reach AAA");
+  it("keeps AAA hover contrast in every theme and skin block", () => {
+    const blocks = [...CSS.matchAll(/html\[[^\]]*\][^{]*\{([^}]*)\}/g)].map((m) => m[1]);
+    let checked = 0;
+    for (const block of blocks) {
+      const bg = /--bg-hover:\s*(#[0-9a-fA-F]{6})/i.exec(block);
+      const fg = /--accent-fg:\s*(#[0-9a-fA-F]{6})/i.exec(block);
+      if (!bg || !fg) continue;
+      assert.ok(contrast(fg[1], bg[1]) >= 7, fg[1] + " on " + bg[1] + " must reach AAA");
+      checked += 1;
     }
+    assert.ok(checked >= 4, "classic and paper skins must each define the hover pair, got " + checked);
   });
 });

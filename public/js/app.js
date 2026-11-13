@@ -4973,7 +4973,10 @@ function applyTheme(mode) {
   if (meta) meta.setAttribute("content", resolved === "dark" ? "#000000" : "#ffffff");
 }
 
-const SKINS = [{ id: "classic", label: "经典柠黄" }];
+const SKINS = [
+  { id: "classic", label: "经典柠黄" },
+  { id: "paper", label: "纸上工作室" },
+];
 
 function currentSkin() {
   try {

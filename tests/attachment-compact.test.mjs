@@ -320,15 +320,16 @@ describe("attachment hover/focus contrast", () => {
     assert.match(ruleFor(".attach-file-name"), /color:\s*var\(--text-1\)/);
     assert.match(ruleFor(".attach-file-hint"), /color:\s*var\(--text-4\)/);
 
-    const bgs = [...CSS.matchAll(/--bg-hover:\s*(#[0-9a-fA-F]{6})/g)].map((m) => m[1].toLowerCase());
-    const fgs = [...CSS.matchAll(/--accent-fg:\s*(#[0-9a-fA-F]{6})/g)].map((m) => m[1].toLowerCase());
-    assert.ok(bgs.length >= 2, "light and dark both define --bg-hover");
-    assert.ok(fgs.length >= 2, "light and dark both define --accent-fg");
-    for (const bg of bgs) {
-      assert.equal(bg, "#ffe600");
-      for (const fg of fgs) {
-        assert.ok(contrast(fg, bg) >= 7, fg + " on " + bg + " must reach AAA");
-      }
+    const hoverBlocks = [...CSS.matchAll(/html\[[^\]]*\][^{]*\{([^}]*)\}/g)].map((m) => m[1])
+      .filter((block) => /--bg-hover:/i.test(block));
+    assert.ok(hoverBlocks.length >= 4, "classic and paper skins must each define --bg-hover");
+    let checked = 0;
+    for (const block of hoverBlocks) {
+      const bg = /--bg-hover:\s*(#[0-9a-fA-F]{6})/i.exec(block)[1].toLowerCase();
+      const fg = /--accent-fg:\s*(#[0-9a-fA-F]{6})/i.exec(block)[1].toLowerCase();
+      assert.ok(contrast(fg, bg) >= 7, fg + " on " + bg + " must reach AAA");
+      checked += 1;
     }
+    assert.ok(checked >= 4, "every hover block must pair its own accent-fg, got " + checked);
   });
 });
