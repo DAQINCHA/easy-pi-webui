@@ -4977,19 +4977,27 @@ const SKINS = [
   { id: "classic", label: "经典柠黄" },
   { id: "paper", label: "纸上工作室" },
   { id: "mint", label: "薄荷陶瓷" },
+  { id: "sea-salt", label: "海盐蓝" },
 ];
+
+// 旧备份皮肤的 id，迁移到正式皮肤上，避免已选的人被重置成经典。
+const SKIN_ALIASES = { "mint-clay": "mint" };
+
+function resolveSkinId(id) {
+  const resolved = SKIN_ALIASES[id] || id;
+  return SKINS.some((skin) => skin.id === resolved) ? resolved : SKINS[0].id;
+}
 
 function currentSkin() {
   try {
-    const saved = localStorage.getItem("piwebui.skin");
-    return SKINS.some((skin) => skin.id === saved) ? saved : SKINS[0].id;
+    return resolveSkinId(localStorage.getItem("piwebui.skin"));
   } catch {
     return SKINS[0].id;
   }
 }
 
 function applySkin(id) {
-  const skin = SKINS.some((item) => item.id === id) ? id : SKINS[0].id;
+  const skin = resolveSkinId(id);
   document.documentElement.dataset.skin = skin;
   try {
     localStorage.setItem("piwebui.skin", skin);

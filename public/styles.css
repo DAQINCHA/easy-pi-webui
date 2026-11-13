@@ -2554,41 +2554,260 @@ html[data-skin="paper"][data-theme="dark"] {
   --scrim: #0d0a07d9;
 }
 
-/* ------------------------ 皮肤：薄荷陶瓷 ------------------------
- * 薄荷绿奶油底 + 深绿点缀 + 桃粉交互件，陶艺浮雕质感。
- * 阴影从硬偏移换成「内高光 + 软投影」的瓷面语言；圆角整体放大到 16~28px。
- * 浅色取自 skins preview/mint-ceramic.html，深色为同色系反推。
- * 预览页的背景渐变暂未实现，v1 用平色近似。 */
-html[data-skin="mint"] {
+/* ------------------------ 皮肤：海盐蓝 ------------------------
+ * 海盐蓝灰底 + 深青点缀 + 沙色交互件，保留细线与扁平层次。
+ * 阴影仍是「内高光 + 软投影」的瓷面语言，圆角 16~28px。
+ * 这一套是原「薄荷陶瓷 v1」的平涂版，配色整体换成冷蓝 + 沙色。 */
+html[data-skin="sea-salt"] {
   --radius: 16px;
   --radius-lg: 28px;
   --border-width: 1px;
 }
 
-/* 陶瓷的结构性形状：标识与头像成正圆，大容器吃大圆角 */
-html[data-skin="mint"] .brand-mark,
-html[data-skin="mint"] .msg .avatar {
-  border-radius: 50%;
+/* 标识与头像用和空状态大图标同一套圆角矩形；小尺寸按比例收小，
+   否则 16px 圆角会把 26/32px 的小方块压成纯圆 */
+html[data-skin="sea-salt"] .brand-mark,
+html[data-skin="sea-salt"] .msg .avatar {
+  border-radius: calc(var(--radius) / 2);
 }
-html[data-skin="mint"] .sidebar,
-html[data-skin="mint"] .thread-inner,
-html[data-skin="mint"] .composer {
+html[data-skin="sea-salt"] .sidebar,
+html[data-skin="sea-salt"] .thread-inner,
+html[data-skin="sea-salt"] .composer {
   border-radius: var(--radius-lg);
 }
 
-/* 发送键保持预览的桃粉实心，而不是深绿 */
-html[data-skin="mint"] .send {
-  background: #f3c2b4;
-  color: #3a241c;
+/* 发送键用主题色实心 */
+html[data-skin="sea-salt"] .send {
+  background: var(--send-bg);
+  color: var(--send-fg);
   border-color: transparent;
 }
-html[data-skin="mint"] .send:hover { background: #efa996; }
-html[data-skin="mint"] .send:active { background: #e89883; }
+html[data-skin="sea-salt"] .send:hover { background: var(--send-hover); }
+html[data-skin="sea-salt"] .send:active { background: var(--send-press); }
+html[data-skin="sea-salt"] .send[disabled] {
+  background: var(--paper);
+  color: var(--text-disabled);
+  border-color: transparent;
+  box-shadow: none;
+}
+html[data-skin="sea-salt"] .send.is-stop,
+html[data-skin="sea-salt"] .send.is-stop:hover {
+  background: var(--red);
+  color: var(--on-danger);
+}
+
+/* 本轮文件卡：列表不留上下内边距，悬停底色才能铺满整张卡片，
+   由卡片自己的圆角 + overflow: hidden 裁出圆边 */
+html[data-skin="sea-salt"] .turn-list { padding: 0; }
+html[data-skin="sea-salt"] .turn-file { padding: 10px 16px; }
+
+html[data-skin="sea-salt"][data-theme="light"] {
+  color-scheme: light;
+
+  --ink: #16262e;
+  --paper: #f6fafc;
+
+  --bg-app: #e6eef2;
+  --bg-chat: #e6eef2;
+  --bg-sidebar: #f2f7fa;
+  --bg-elev: #f6fafc;
+  --bg-elev-2: #eff5f8;
+  --bg-elev-3: #dfeaf0;
+  --bg-code: #eef4f8;
+  --bg-inline-code: #1f5b6b14;
+  --code-head: #1f5b6b0d;
+  --brand-tile: #d7e9f0;
+
+  /* 悬停 = 深青底 + 纸白字，与主色同一份组件语义 */
+  --bg-hover: #1f5b6b;
+  --bg-selected: #dbeaf6;
+  --text-selected: #17313f;
+  --text-selected-muted: #4f7186;
+
+  --text-1: #16262e;
+  --text-2: #2a4350;
+  --text-3: #3f5b68;
+  --text-4: #5b7482;
+  --text-disabled: #8ba1ac;
+
+  --border-soft: #dbe6ec;
+  --border: #c8d8e1;
+  --border-strong: #b3c8d3;
+
+  --accent: #1f5b6b;
+  --accent-fg: #f6fafc;
+  --accent-hover: #194c59;
+  --accent-pressed: #143c46;
+  --focus-ring: #1f5b6b;
+  --blue: #1f5b6b;
+  --link: #1f5b6b;
+  --glow: #1f5b6b;
+
+  --bg-user: #dbeaf6;
+  --text-user: #17313f;
+  --user-bubble-border: #dbeaf6;
+
+  --send-bg: var(--accent);
+  --send-fg: var(--accent-fg);
+  --send-hover: var(--accent-hover);
+  --send-press: var(--accent-pressed);
+
+  --green: #2e6b5a;
+  --red: #b5483a;
+  --yellow: #a3762a;
+  --purple: #5f5a8c;
+  --on-danger: #f6fafc;
+
+  --diff-add-bg: #dfeee6;
+  --diff-add-fg: #2e6b5a;
+  --diff-del-bg: #f3ddd8;
+  --diff-del-fg: #b5483a;
+
+  --tok-kw: #1f5b6b;
+  --tok-str: #2e6b5a;
+  --tok-num: #a3762a;
+
+  --shadow-color: rgba(50, 85, 105, 0.14);
+  --shadow-pop: 0 8px 20px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  --shadow-composer: 0 10px 22px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  --shadow-soft: 0 3px 8px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  --shadow-accent: 0 3px 8px rgba(31, 91, 107, 0.18), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  --shadow-accent-strong: 0 6px 16px rgba(31, 91, 107, 0.22), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  --shadow-raised: 0 6px 14px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  --shadow-card: 0 6px 14px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95), inset 0 -2px 5px rgba(50, 90, 110, 0.08);
+  --shadow-modal: 0 14px 30px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+  --shadow-drawer: 10px 0 24px var(--shadow-color);
+  --overlay-btn: #16262e;
+  --on-overlay: #f6fafc;
+  --ring-track: #16262e33;
+  --scroll-thumb: #b3c8d3;
+  --scroll-thumb-hover: #1f5b6b;
+  --scrim: #0e1a20b3;
+}
+
+html[data-skin="sea-salt"][data-theme="dark"] {
+  color-scheme: dark;
+
+  --ink: #dbe7ed;
+  --paper: #131d23;
+
+  --bg-app: #0e171c;
+  --bg-chat: #0e171c;
+  --bg-sidebar: #111b21;
+  --bg-elev: #131d23;
+  --bg-elev-2: #16232a;
+  --bg-elev-3: #0a1216;
+  --bg-code: #16232a;
+  --bg-inline-code: #dbe7ed1f;
+  --code-head: #dbe7ed14;
+  --brand-tile: #cfe4ee;
+
+  /* 悬停 = 亮海盐蓝底 + 深字，浅色模式深青悬停的夜版 */
+  --bg-hover: #7fbdd2;
+  --bg-selected: #1d3240;
+  --text-selected: #dbe9f3;
+  --text-selected-muted: #8fa8b6;
+
+  --text-1: #dbe7ed;
+  --text-2: #bfd2db;
+  --text-3: #93aab6;
+  --text-4: #78919d;
+  --text-disabled: #50646e;
+
+  --border-soft: #22323b;
+  --border: #2b3d47;
+  --border-strong: #394e5a;
+
+  --accent: #7fbdd2;
+  --accent-fg: #0d1a20;
+  --accent-hover: #90cadc;
+  --accent-pressed: #5a9db3;
+  --focus-ring: #7fbdd2;
+  --blue: #7fbdd2;
+  --link: #7fbdd2;
+  --glow: #7fbdd2;
+
+  --bg-user: #1d3240;
+  --text-user: #dbe9f3;
+  --user-bubble-border: #2a4353;
+
+  --send-bg: var(--accent);
+  --send-fg: var(--accent-fg);
+  --send-hover: var(--accent-hover);
+  --send-press: var(--accent-pressed);
+
+  --green: #7fd0b0;
+  --red: #e08a7a;
+  --yellow: #d9b36a;
+  --purple: #b3a1d4;
+  --on-danger: #0d1a20;
+
+  --diff-add-bg: #1c2f2a;
+  --diff-add-fg: #7fd0b0;
+  --diff-del-bg: #3a241e;
+  --diff-del-fg: #e08a7a;
+
+  --tok-kw: #90cadc;
+  --tok-str: #7fd0b0;
+  --tok-num: #d9b36a;
+
+  --shadow-color: rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 8px 20px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
+  --shadow-composer: 0 10px 22px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
+  --shadow-soft: 0 3px 8px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
+  --shadow-accent: 0 3px 8px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.08);
+  --shadow-accent-strong: 0 6px 16px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.08);
+  --shadow-raised: 0 6px 14px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
+  --shadow-card: 0 6px 14px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06), inset 0 -2px 5px rgba(0, 0, 0, 0.2);
+  --shadow-modal: 0 14px 30px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
+  --shadow-drawer: 10px 0 24px var(--shadow-color);
+  --overlay-btn: #dbe7ed;
+  --on-overlay: #0d1a20;
+  --ring-track: #dbe7ed3d;
+  --scroll-thumb: #394e5a;
+  --scroll-thumb-hover: #7fbdd2;
+  --scrim: #081014d9;
+}
+
+/* ------------------------ 皮肤：薄荷陶瓷 ------------------------
+ * 对照 skins preview/mint-ceramic.html：不画描边线，改用「内高光 +
+ * 外软投影」的陶面浮雕；应用外壳留出内边距，让侧栏和输入框成为浮起的
+ * 瓷片，主对话区直接坐在渐变底上，不再套一层圆角外框。 */
+html[data-skin="mint"] {
+  --radius: 16px;
+  --radius-lg: 28px;
+  --border-width: 0px;
+}
 
 html[data-skin="mint"][data-theme="light"] {
   color-scheme: light;
 
-  --ink: #1a2a24;
+  /* 瓷片表面与浮雕光影 */
+  --clay-bg-from: #eef3ee;
+  --clay-bg-to: #e4ebe4;
+  --clay-card: #f7faf7;
+  --clay-card-2: #f4f7f4;
+  --clay-tile: #d9ebe3;
+  --clay-newchat-from: #eaf4ef;
+  --clay-newchat-to: #d9ebe3;
+  --clay-newchat-hover: #cfe3d8;
+  --clay-newchat-ink: #1a2a24;
+  --clay-chip: #eef4ef;
+  --clay-peach: #fde8df;
+  --clay-peach-ink: #3a241c;
+  --clay-peach-shadow: rgba(140, 90, 70, 0.14);
+  --clay-hi: rgba(255, 255, 255, 0.95);
+  --clay-lo: rgba(70, 110, 95, 0.1);
+  --clay-drop: rgba(70, 100, 90, 0.13);
+  --clay-drop-strong: rgba(70, 100, 90, 0.2);
+  --clay-line: rgba(70, 110, 95, 0.14);
+
+  /* 线条一律退场，只留极淡的表格/分隔线 */
+  --ink: transparent;
+  --border: transparent;
+  --border-soft: transparent;
+  --border-strong: #cfe0d6;
+
   --paper: #f7faf7;
 
   --bg-app: #e7eee8;
@@ -2614,10 +2833,6 @@ html[data-skin="mint"][data-theme="light"] {
   --text-4: #5a7268;
   --text-disabled: #8aa096;
 
-  --border-soft: #dde7de;
-  --border: #c9d8ce;
-  --border-strong: #b7c9bd;
-
   --accent: #21564a;
   --accent-fg: #f7faf7;
   --accent-hover: #1a463d;
@@ -2629,7 +2844,7 @@ html[data-skin="mint"][data-theme="light"] {
 
   --bg-user: #fde8df;
   --text-user: #3a241c;
-  --user-bubble-border: #fde8df;
+  --user-bubble-border: transparent;
 
   --green: #2e6b46;
   --red: #b5483a;
@@ -2646,16 +2861,17 @@ html[data-skin="mint"][data-theme="light"] {
   --tok-str: #2e6b46;
   --tok-num: #a3762a;
 
+  /* 阴影全部换成浮雕语言 */
   --shadow-color: rgba(70, 100, 90, 0.14);
-  --shadow-pop: 0 8px 20px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
-  --shadow-composer: 0 10px 22px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
-  --shadow-soft: 0 3px 8px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
-  --shadow-accent: 0 3px 8px rgba(140, 80, 60, 0.18), inset 0 1px 1px rgba(255, 255, 255, 0.95);
-  --shadow-accent-strong: 0 6px 16px rgba(140, 80, 60, 0.22), inset 0 1px 1px rgba(255, 255, 255, 0.95);
-  --shadow-raised: 0 6px 14px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
-  --shadow-card: 0 6px 14px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95), inset 0 -2px 5px rgba(70, 110, 95, 0.08);
-  --shadow-modal: 0 14px 30px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.95);
-  --shadow-drawer: 10px 0 24px var(--shadow-color);
+  --shadow-pop: 0 8px 20px var(--clay-drop), inset 0 1px 1px var(--clay-hi);
+  --shadow-composer: 0 10px 22px var(--clay-drop), inset 0 1px 1px var(--clay-hi);
+  --shadow-soft: 0 3px 8px var(--clay-drop), inset 0 1px 1px var(--clay-hi);
+  --shadow-accent: 0 3px 8px var(--clay-peach-shadow), inset 0 1px 1px var(--clay-hi);
+  --shadow-accent-strong: 0 6px 16px var(--clay-peach-shadow), inset 0 1px 1px var(--clay-hi);
+  --shadow-raised: 0 6px 14px var(--clay-drop), inset 0 1px 1px var(--clay-hi);
+  --shadow-card: 0 6px 14px var(--clay-drop), inset 0 1px 1px var(--clay-hi), inset 0 -2px 5px var(--clay-lo);
+  --shadow-modal: 0 18px 40px var(--clay-drop-strong), inset 0 1px 1px var(--clay-hi);
+  --shadow-drawer: 10px 0 24px var(--clay-drop-strong);
   --overlay-btn: #1a2a24;
   --on-overlay: #f7faf7;
   --ring-track: #1a2a2433;
@@ -2667,8 +2883,31 @@ html[data-skin="mint"][data-theme="light"] {
 html[data-skin="mint"][data-theme="dark"] {
   color-scheme: dark;
 
-  --ink: #e2ece5;
-  --paper: #16211c;
+  --clay-bg-from: #0f1713;
+  --clay-bg-to: #0a110d;
+  --clay-card: #1b2620;
+  --clay-card-2: #17211b;
+  --clay-tile: #2c4438;
+  --clay-newchat-from: #334d40;
+  --clay-newchat-to: #26372e;
+  --clay-newchat-hover: #3a5a4a;
+  --clay-newchat-ink: #e2ece5;
+  --clay-chip: #22312a;
+  --clay-peach: #3c2b24;
+  --clay-peach-ink: #f2dfd5;
+  --clay-peach-shadow: rgba(0, 0, 0, 0.4);
+  --clay-hi: rgba(255, 255, 255, 0.07);
+  --clay-lo: rgba(0, 0, 0, 0.4);
+  --clay-drop: rgba(0, 0, 0, 0.45);
+  --clay-drop-strong: rgba(0, 0, 0, 0.58);
+  --clay-line: rgba(255, 255, 255, 0.09);
+
+  --ink: transparent;
+  --border: transparent;
+  --border-soft: transparent;
+  --border-strong: #3d5146;
+
+  --paper: #1b2620;
 
   --bg-app: #101814;
   --bg-chat: #101814;
@@ -2679,7 +2918,7 @@ html[data-skin="mint"][data-theme="dark"] {
   --bg-code: #182219;
   --bg-inline-code: #e2ece51f;
   --code-head: #e2ece514;
-  --brand-tile: #cfe3d8;
+  --brand-tile: #2c4438;
 
   /* 悬停 = 亮薄荷底 + 深字，浅色模式深绿悬停的夜版 */
   --bg-hover: #7fc8a8;
@@ -2693,10 +2932,6 @@ html[data-skin="mint"][data-theme="dark"] {
   --text-4: #7f958a;
   --text-disabled: #55695f;
 
-  --border-soft: #26332c;
-  --border: #2f3f36;
-  --border-strong: #3d5146;
-
   --accent: #7fc8a8;
   --accent-fg: #12211b;
   --accent-hover: #8fd4b6;
@@ -2708,7 +2943,7 @@ html[data-skin="mint"][data-theme="dark"] {
 
   --bg-user: #3c2b24;
   --text-user: #f2dfd5;
-  --user-bubble-border: #4a362d;
+  --user-bubble-border: transparent;
 
   --green: #8fd4a8;
   --red: #e08a7a;
@@ -2726,19 +2961,433 @@ html[data-skin="mint"][data-theme="dark"] {
   --tok-num: #d9b36a;
 
   --shadow-color: rgba(0, 0, 0, 0.45);
-  --shadow-pop: 0 8px 20px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
-  --shadow-composer: 0 10px 22px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
-  --shadow-soft: 0 3px 8px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
-  --shadow-accent: 0 3px 8px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.08);
-  --shadow-accent-strong: 0 6px 16px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.08);
-  --shadow-raised: 0 6px 14px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
-  --shadow-card: 0 6px 14px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06), inset 0 -2px 5px rgba(0, 0, 0, 0.2);
-  --shadow-modal: 0 14px 30px var(--shadow-color), inset 0 1px 1px rgba(255, 255, 255, 0.06);
-  --shadow-drawer: 10px 0 24px var(--shadow-color);
+  --shadow-pop: 0 8px 20px var(--clay-drop), inset 0 1px 1px var(--clay-hi);
+  --shadow-composer: 0 10px 22px var(--clay-drop), inset 0 1px 1px var(--clay-hi);
+  --shadow-soft: 0 3px 8px var(--clay-drop), inset 0 1px 1px var(--clay-hi);
+  --shadow-accent: 0 3px 8px var(--clay-drop), inset 0 1px 1px var(--clay-hi);
+  --shadow-accent-strong: 0 6px 16px var(--clay-drop), inset 0 1px 1px var(--clay-hi);
+  --shadow-raised: 0 6px 14px var(--clay-drop), inset 0 1px 1px var(--clay-hi);
+  --shadow-card: 0 6px 14px var(--clay-drop), inset 0 1px 1px var(--clay-hi), inset 0 -2px 5px var(--clay-lo);
+  --shadow-modal: 0 18px 40px var(--clay-drop-strong), inset 0 1px 1px var(--clay-hi);
+  --shadow-drawer: 10px 0 24px var(--clay-drop-strong);
   --overlay-btn: #e2ece5;
   --on-overlay: #12211b;
   --ring-track: #e2ece53d;
   --scroll-thumb: #3d5146;
   --scroll-thumb-hover: #7fc8a8;
   --scrim: #0d1713d9;
+}
+
+/* ---- 外壳：薄荷渐变底 + 瓷片之间的缝 ---- */
+html[data-skin="mint"] .app {
+  padding: 12px;
+  gap: 12px;
+  border-top: 0;
+  background: linear-gradient(180deg, var(--clay-bg-from) 0%, var(--clay-bg-to) 100%);
+}
+html[data-skin="mint"] .app.sidebar-hidden { gap: 0; }
+html[data-skin="mint"] .main { background: transparent; }
+html[data-skin="mint"] .topbar {
+  background: transparent;
+  border-bottom: 0;
+}
+
+/* ---- 大瓷片：侧栏 / 输入框 ---- */
+html[data-skin="mint"] .sidebar {
+  background: var(--clay-card-2);
+  border: 0;
+  border-radius: var(--radius-lg);
+  box-shadow:
+    inset 0 1px 1px var(--clay-hi),
+    inset 0 -3px 6px var(--clay-lo);
+}
+/* 外投影必须放在槽上：.sidebar-slot 有 overflow: hidden，会裁掉侧栏自己的外阴影 */
+html[data-skin="mint"] .sidebar-slot {
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 24px var(--clay-drop);
+}
+html[data-skin="mint"] .thread-inner {
+  /* 主对话区不画外框：内容直接坐在外壳渐变上 */
+  width: calc(100% - 28px);
+  min-height: calc(100% - 16px);
+  margin: 4px auto 12px;
+  padding: 24px 22px 28px;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+html[data-skin="mint"] .composer-shell {
+  padding: 0 14px calc(14px + env(safe-area-inset-bottom));
+}
+html[data-skin="mint"] .composer {
+  background: var(--clay-card);
+  border: 0;
+  border-radius: 24px;
+  box-shadow:
+    inset 0 1px 1px var(--clay-hi),
+    0 10px 22px var(--clay-drop);
+}
+html[data-skin="mint"] .composer:focus-within {
+  box-shadow:
+    inset 0 1px 1px var(--clay-hi),
+    0 12px 26px var(--clay-drop-strong);
+}
+html[data-skin="mint"] .composer.dragover {
+  box-shadow:
+    0 0 0 2px var(--accent),
+    inset 0 1px 1px var(--clay-hi),
+    0 10px 22px var(--clay-drop);
+}
+
+/* ---- 标识与头像：圆形瓷片 ---- */
+html[data-skin="mint"] .brand-mark,
+html[data-skin="mint"] .msg .avatar,
+html[data-skin="mint"] .empty-mark {
+  background: var(--clay-tile);
+  border: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 1px 1px var(--clay-hi), 0 2px 6px var(--clay-drop);
+}
+
+/* ---- 侧栏控件 ---- */
+html[data-skin="mint"] .new-chat {
+  background: linear-gradient(180deg, var(--clay-newchat-from) 0%, var(--clay-newchat-to) 100%);
+  color: var(--clay-newchat-ink);
+  border: 0;
+  border-radius: 16px;
+  box-shadow: inset 0 1px 1px var(--clay-hi), 0 4px 10px var(--clay-drop);
+}
+html[data-skin="mint"] .new-chat:hover {
+  background: linear-gradient(180deg, var(--clay-newchat-to) 0%, var(--clay-newchat-hover) 100%);
+  color: var(--clay-newchat-ink);
+  box-shadow: inset 0 1px 1px var(--clay-hi), 0 6px 14px var(--clay-drop-strong);
+}
+html[data-skin="mint"] .new-chat:active {
+  background: var(--clay-newchat-hover);
+  box-shadow: inset 0 2px 5px var(--clay-lo);
+}
+html[data-skin="mint"] .new-chat kbd { color: var(--text-4); }
+
+html[data-skin="mint"] .search,
+html[data-skin="mint"] .workspace {
+  background: var(--clay-card);
+  border: 0;
+  border-radius: 16px;
+  box-shadow: inset 0 2px 5px var(--clay-lo), inset 0 1px 0 var(--clay-hi);
+}
+html[data-skin="mint"] .search:hover,
+html[data-skin="mint"] .workspace:hover {
+  background: var(--clay-card);
+  border-color: transparent;
+}
+/* 工作区按钮要看得出来是按钮：从内凹改成凸起，加一圈极淡的边和更明显的投影 */
+html[data-skin="mint"] .workspace {
+  background: var(--clay-card);
+  box-shadow:
+    inset 0 1px 1px var(--clay-hi),
+    0 0 0 1px var(--clay-line),
+    0 4px 10px var(--clay-drop);
+}
+html[data-skin="mint"] .workspace:hover {
+  box-shadow:
+    inset 0 1px 1px var(--clay-hi),
+    0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 6px 14px var(--clay-drop-strong);
+}
+/* 工作区菜单里的「打开工作区...」同样给一圈浅边 + 浅投影，不再和菜单底同色糊在一起 */
+html[data-skin="mint"] .workspace-menu .picker-btn {
+  background: var(--clay-card);
+  color: var(--text-1);
+  box-shadow:
+    inset 0 1px 1px var(--clay-hi),
+    0 0 0 1px var(--clay-line),
+    0 2px 6px var(--clay-drop);
+}
+html[data-skin="mint"] .workspace-menu .picker-btn:hover,
+html[data-skin="mint"] .workspace-menu .picker-btn:focus-visible {
+  background: var(--bg-hover);
+  color: var(--accent-fg);
+  box-shadow: 0 4px 10px var(--clay-drop-strong);
+}
+
+html[data-skin="mint"] .session-item { border-radius: 16px; }
+html[data-skin="mint"] .session-item.active {
+  background: var(--clay-peach);
+  color: var(--clay-peach-ink);
+  box-shadow: inset 0 1px 1px var(--clay-hi), 0 3px 8px var(--clay-peach-shadow);
+}
+html[data-skin="mint"] .session-item.active .t { color: var(--clay-peach-ink); }
+html[data-skin="mint"] .session-item.active .m { color: #7a5c4e; }
+html[data-skin="mint"] .session-action { border-radius: 50%; }
+
+html[data-skin="mint"] .icon-btn { border-radius: 50%; }
+
+/* ---- 消息 ---- */
+html[data-skin="mint"] .bubble {
+  background: var(--clay-peach);
+  color: var(--clay-peach-ink);
+  border: 0;
+  border-radius: 20px;
+  box-shadow: inset 0 1px 1px var(--clay-hi), 0 6px 14px var(--clay-peach-shadow);
+}
+html[data-skin="mint"] .msg.assistant .markdown {
+  background: var(--clay-card);
+  border-radius: 20px;
+  padding: 12px 16px;
+  box-shadow: inset 0 1px 1px var(--clay-hi), 0 6px 14px var(--clay-drop);
+}
+html[data-skin="mint"] .action {
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: none;
+  color: var(--text-2);
+}
+html[data-skin="mint"] .action:hover {
+  background: var(--bg-hover);
+  color: var(--accent-fg);
+}
+html[data-skin="mint"] .action:disabled,
+html[data-skin="mint"] .action:disabled:hover {
+  background: transparent;
+  color: var(--text-disabled);
+  box-shadow: none;
+}
+
+/* ---- 过程、工具、思考、本轮摘要：小瓷片 ---- */
+html[data-skin="mint"] .tool,
+html[data-skin="mint"] .think,
+html[data-skin="mint"] .proc-head,
+html[data-skin="mint"] .turn-pill,
+html[data-skin="mint"] .turn-card,
+html[data-skin="mint"] .queue-rail,
+html[data-skin="mint"] .notice {
+  background: var(--clay-card-2);
+  border: 0;
+  border-radius: 18px;
+  box-shadow:
+    inset 0 1px 1px var(--clay-hi),
+    inset 0 -2px 5px var(--clay-lo),
+    0 6px 14px var(--clay-drop);
+}
+html[data-skin="mint"] .tool:hover,
+html[data-skin="mint"] .proc-head:hover,
+html[data-skin="mint"] .turn-pill:hover { border-color: transparent; }
+/* 卡片自己带了背景，必须显式补回悬停底色，否则基础样式的反相文字会叠在浅底上 */
+html[data-skin="mint"] .proc-head:hover,
+html[data-skin="mint"] .turn-pill:hover {
+  background: var(--bg-hover);
+  color: var(--accent-fg);
+}
+html[data-skin="mint"] .tool-ico {
+  background: var(--clay-chip);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: inset 0 1px 1px var(--clay-hi);
+}
+/* 本轮文件卡：列表不留上下内边距，悬停底色才能铺满整张卡片，
+   由卡片自己的圆角 + overflow: hidden 裁出圆边 */
+html[data-skin="mint"] .turn-list { padding: 0; }
+html[data-skin="mint"] .turn-file { padding: 10px 16px; }
+html[data-skin="mint"] .tool-body,
+html[data-skin="mint"] .tool-cmd { border: 0; }
+html[data-skin="mint"] .proc-body {
+  border-left: 0;
+  padding-left: 10px;
+}
+
+/* ---- 代码与表格：内凹的浅色块，不画外框 ---- */
+html[data-skin="mint"] .code {
+  border: 0;
+  border-radius: 14px;
+  background: var(--clay-card-2);
+  box-shadow: inset 0 1px 3px var(--clay-lo);
+}
+html[data-skin="mint"] .code-head {
+  background: var(--clay-chip);
+  border-bottom: 0;
+}
+html[data-skin="mint"] .markdown code {
+  border: 0;
+  border-radius: 8px;
+}
+html[data-skin="mint"] .markdown blockquote {
+  border-left: 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--clay-card-2);
+  box-shadow: inset 0 1px 1px var(--clay-hi);
+}
+html[data-skin="mint"] .markdown th,
+html[data-skin="mint"] .markdown td {
+  border: 0;
+  box-shadow: inset 0 -1px 0 var(--clay-line);
+}
+html[data-skin="mint"] .markdown th { background: var(--clay-chip); }
+html[data-skin="mint"] .markdown hr { border-top: 1px solid var(--clay-line); }
+html[data-skin="mint"] .markdown img { border-radius: 14px; }
+
+/* ---- 输入区：胶囊与桃粉发送键 ---- */
+html[data-skin="mint"] .chip {
+  background: var(--clay-chip);
+  color: var(--text-1);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: inset 0 1px 1px var(--clay-hi);
+}
+html[data-skin="mint"] .chip:hover {
+  background: var(--bg-hover);
+  color: var(--accent-fg);
+  border-color: transparent;
+}
+html[data-skin="mint"] .send {
+  background: #f3c2b4;
+  color: #3a241c;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 1px 1px var(--clay-hi), 0 3px 8px var(--clay-peach-shadow);
+}
+html[data-skin="mint"] .send:hover { background: #efa996; }
+html[data-skin="mint"] .send:active {
+  background: #e89883;
+  box-shadow: inset 0 2px 4px rgba(140, 80, 60, 0.28);
+}
+html[data-skin="mint"] .send[disabled] {
+  background: var(--clay-card-2);
+  color: var(--text-disabled);
+  box-shadow: none;
+}
+html[data-skin="mint"] .send.is-stop { background: var(--red); color: var(--on-danger); }
+html[data-skin="mint"] .send.is-stop:hover { background: var(--red); color: var(--on-danger); }
+html[data-skin="mint"] .queue-pill {
+  border: 0;
+  border-radius: 999px;
+  box-shadow: inset 0 1px 1px var(--clay-hi), 0 2px 6px var(--clay-drop);
+}
+html[data-skin="mint"] .queue-item { border-top: 0; }
+html[data-skin="mint"] .queue-act {
+  border: 0;
+  border-radius: 999px;
+  background: var(--clay-chip);
+}
+html[data-skin="mint"] .queue-act:hover {
+  background: var(--bg-hover);
+  color: var(--accent-fg);
+}
+
+/* ---- 浮层：菜单、弹窗、提示 ---- */
+html[data-skin="mint"] .menu,
+html[data-skin="mint"] .toast,
+html[data-skin="mint"] .rail-tip {
+  background: var(--clay-card);
+  border: 0;
+  border-radius: 20px;
+  box-shadow: 0 18px 40px var(--clay-drop-strong), inset 0 1px 1px var(--clay-hi);
+}
+html[data-skin="mint"] .modal {
+  background: var(--clay-card);
+  border: 0;
+  border-radius: 24px;
+  box-shadow: 0 18px 40px var(--clay-drop-strong), inset 0 1px 1px var(--clay-hi);
+}
+html[data-skin="mint"] .menu-item { border-radius: 14px; }
+html[data-skin="mint"] .menu-sep { background: var(--clay-line); }
+html[data-skin="mint"] .to-bottom {
+  background: var(--clay-card);
+  border: 0;
+  border-radius: 50%;
+  box-shadow: 0 6px 16px var(--clay-drop-strong), inset 0 1px 1px var(--clay-hi);
+}
+html[data-skin="mint"] .to-bottom:hover {
+  background: var(--bg-hover);
+  color: var(--accent-fg);
+}
+
+/* ---- 表单与按钮 ---- */
+html[data-skin="mint"] .field {
+  border: 0;
+  border-radius: 14px;
+  background: var(--clay-card);
+  box-shadow: inset 0 2px 5px var(--clay-lo), inset 0 1px 0 var(--clay-hi);
+}
+html[data-skin="mint"] .field:focus {
+  box-shadow:
+    inset 0 2px 5px var(--clay-lo),
+    inset 0 1px 0 var(--clay-hi),
+    0 0 0 2px var(--focus-ring);
+}
+html[data-skin="mint"] .btn {
+  border: 0;
+  border-radius: 999px;
+  background: var(--clay-card);
+  box-shadow: inset 0 1px 1px var(--clay-hi), 0 3px 8px var(--clay-drop);
+}
+html[data-skin="mint"] .btn:hover { background: var(--bg-hover); color: var(--accent-fg); }
+html[data-skin="mint"] .btn.danger:hover { color: var(--red); }
+html[data-skin="mint"] .btn.primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+html[data-skin="mint"] .options button {
+  border: 0;
+  border-radius: 14px;
+  background: var(--clay-card-2);
+  box-shadow: inset 0 1px 1px var(--clay-hi);
+}
+html[data-skin="mint"] .options button:hover,
+html[data-skin="mint"] .options button:focus-visible {
+  background: var(--bg-hover);
+  color: var(--accent-fg);
+}
+html[data-skin="mint"] .options button.active {
+  background: var(--bg-selected);
+  color: var(--text-selected);
+}
+html[data-skin="mint"] .recent-item { border-radius: 14px; }
+html[data-skin="mint"] .picker-btn { border: 0; border-radius: 999px; }
+
+/* ---- 附件与预览 ---- */
+html[data-skin="mint"] .attach-thumb,
+html[data-skin="mint"] .attach-file,
+html[data-skin="mint"] .pending-edit-bar {
+  border: 0;
+  border-radius: 14px;
+  background: var(--clay-card-2);
+  box-shadow: inset 0 1px 1px var(--clay-hi);
+}
+html[data-skin="mint"] .file-preview pre,
+html[data-skin="mint"] .file-preview img,
+html[data-skin="mint"] .file-preview-frame {
+  border: 0;
+  border-radius: 14px;
+  background: var(--clay-card-2);
+}
+html[data-skin="mint"] .suggestions button {
+  border: 0;
+  border-radius: 999px;
+  background: var(--clay-card);
+  box-shadow: inset 0 1px 1px var(--clay-hi), 0 3px 8px var(--clay-drop);
+}
+html[data-skin="mint"] .suggestions button:hover {
+  background: var(--bg-hover);
+  color: var(--accent-fg);
+  box-shadow: 0 4px 10px var(--clay-drop-strong);
+}
+
+/* ---- 窄屏：外壳贴边，侧栏抽屉保留右侧圆角 ---- */
+@media (max-width: 900px) {
+  html[data-skin="mint"] .app { padding: 0; gap: 0; }
+  html[data-skin="mint"] .sidebar {
+    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+    box-shadow: var(--shadow-drawer);
+  }
+  html[data-skin="mint"] .thread-inner {
+    width: calc(100% - 20px);
+    min-height: calc(100% - 12px);
+    margin: 4px auto 8px;
+    padding: 18px 14px 20px;
+  }
+  html[data-skin="mint"] .composer-shell {
+    padding: 0 10px calc(10px + env(safe-area-inset-bottom));
+  }
 }
