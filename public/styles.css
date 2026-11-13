@@ -1059,6 +1059,11 @@ html[data-mode="system"] .theme-mode-system { display: block; }
 }
 .msg.assistant:hover .msg-foot { opacity: 1; }
 .msg.user:hover .msg-foot { opacity: 1; justify-content: flex-end; }
+/* 工作提示紧跟在下面时，收起上一条消息预留的悬停按钮高度。
+   那 22px（含 6px 上边距）是给鼠标悬停看操作按钮的，pi 还在跑时按钮用不上，
+   却会把「正在处理你的请求」顶得离上方的折叠工具栏很远；有没有正文时又不一样，
+   所以看起来时大时小。 */
+.msg:has(+ .working) .msg-foot { display: none; }
 .action {
   display: inline-flex; align-items: center; gap: 5px;
   height: 24px; padding: 0 7px;
