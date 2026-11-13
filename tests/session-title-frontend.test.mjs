@@ -347,3 +347,38 @@ describe("active sidebar title freshness", () => {
     assert.deepEqual(sidebarLabels(app), ["新对话"]);
   });
 });
+
+describe("sidebar session paging", () => {
+  const OLD = "/ws/old.jsonl";
+
+  it("keeps the current session in the list when it is older than the page", () => {
+    const app = makeApp(async () => jsonResponse({}));
+    app.state.file = OLD;
+    app.state.key = "s:old";
+    app.state.sessionName = "更早的会话";
+    app.state.sessions = [session()];
+    app.renderSessions();
+    assert.ok(sidebarLabels(app).includes("更早的会话"));
+    assert.ok(app.sessionsForSidebar().some((item) => item.file === OLD));
+  });
+
+  it("offers load more and asks the server for a bigger page", async () => {
+    const app = makeApp(async (path) => {
+      if (path === "/api/sessions") return jsonResponse({ sessions: [session()], hasMore: false });
+      return jsonResponse({ success: true });
+    });
+    app.bindEvents();
+    app.state.sessions = [session()];
+    app.state.sessionsHasMore = true;
+    app.renderSessions();
+
+    const more = app.el.sessionList.querySelector("[data-load-more]");
+    assert.ok(more, "load-more button is rendered");
+    app.el.sessionList.emit("click", { target: more });
+    await tick();
+    await tick();
+
+    assert.equal(app.state.sessionsLimit, 160);
+    assert.equal(app.state.sessionsHasMore, false);
+  });
+});

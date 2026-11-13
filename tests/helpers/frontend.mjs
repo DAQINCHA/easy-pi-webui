@@ -31,6 +31,24 @@ function appSource() {
     "  applySessionList: typeof applySessionList === 'function' ? applySessionList : undefined,\n" +
     "  nextSessionsSeq: typeof nextSessionsSeq === 'function' ? nextSessionsSeq : undefined,\n" +
     "  sessionNames: typeof sessionNames !== 'undefined' ? sessionNames : undefined,\n" +
+    "  visiblePromptText: typeof visiblePromptText === 'function' ? visiblePromptText : undefined,\n" +
+    "  userVisibleText: typeof userVisibleText === 'function' ? userVisibleText : undefined,\n" +
+    "  requestBodyBytes: typeof requestBodyBytes === 'function' ? requestBodyBytes : undefined,\n" +
+    "  requestTooLarge: typeof requestTooLarge === 'function' ? requestTooLarge : undefined,\n" +
+    "  requestTooLargeMessage: typeof requestTooLargeMessage === 'function' ? requestTooLargeMessage : undefined,\n" +
+    "  sendMessage: typeof sendMessage === 'function' ? sendMessage : undefined,\n" +
+    "  addOptimisticUser: typeof addOptimisticUser === 'function' ? addOptimisticUser : undefined,\n" +
+    "  settleOptimisticUser: typeof settleOptimisticUser === 'function' ? settleOptimisticUser : undefined,\n" +
+    "  clearOptimistic: typeof clearOptimistic === 'function' ? clearOptimistic : undefined,\n" +
+    "  updateSendState: typeof updateSendState === 'function' ? updateSendState : undefined,\n" +
+    "  finishMessage: typeof finishMessage === 'function' ? finishMessage : undefined,\n" +
+    "  renderQueue: typeof renderQueue === 'function' ? renderQueue : undefined,\n" +
+    "  queueItems: typeof queueItems === 'function' ? queueItems : undefined,\n" +
+    "  queueSummary: typeof queueSummary === 'function' ? queueSummary : undefined,\n" +
+    "  applyQueueUpdate: typeof applyQueueUpdate === 'function' ? applyQueueUpdate : undefined,\n" +
+    "  clearQueued: typeof clearQueued === 'function' ? clearQueued : undefined,\n" +
+    "  insertQueuedItem: typeof insertQueuedItem === 'function' ? insertQueuedItem : undefined,\n" +
+    "  cancelQueuedItem: typeof cancelQueuedItem === 'function' ? cancelQueuedItem : undefined,\n" +
     "};\n";
 }
 

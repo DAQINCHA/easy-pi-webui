@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
-  mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync,
+  existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync,
+  utimesSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +10,7 @@ import {
   MAX_FILE_BYTES,
   UPLOAD_DIR_SEGMENTS,
   classifyFile,
+  cleanupUnreferencedUploads,
   resolveWorkspaceFile,
   safeBasename,
   saveUpload,
@@ -202,5 +204,104 @@ describe("project uploads read boundary", () => {
     const got = resolveWorkspaceFile(ws, join(uploads, "link.txt"));
     assert.equal(got.path, realpathSync(outside));
     assert.equal(readFileSync(got.path, "utf8"), "secret");
+  });
+});
+
+describe("unreferenced upload cleanup", () => {
+  const OLD = new Date("2020-01-01T00:00:00.000Z");
+
+  function fixture() {
+    const dir = mkdtempSync(join(tmpdir(), "epw-cleanup-"));
+    const project = join(dir, "project");
+    const uploads = join(project, "uploads");
+    mkdirSync(uploads, { recursive: true });
+    const sessionsRoot = join(dir, "sessions");
+    const sessions = join(sessionsRoot, "--ws--");
+    mkdirSync(sessions, { recursive: true });
+    return {
+      dir,
+      project,
+      uploads,
+      sessionsRoot,
+      addUpload(name, age = OLD) {
+        const file = join(uploads, name);
+        writeFileSync(file, "payload");
+        utimesSync(file, age, age);
+        return file;
+      },
+      addSession(name, text) {
+        const file = join(sessions, name);
+        writeFileSync(file, JSON.stringify({ type: "message", message: { role: "user", content: text } }) + "\n");
+        return file;
+      },
+    };
+  }
+
+  it("deletes only old uploads that no session references", () => {
+    const f = fixture();
+    try {
+      const kept = f.addUpload("aaa-kept.txt");
+      const orphan = f.addUpload("bbb-orphan.txt");
+      const fresh = f.addUpload("ccc-fresh.txt", new Date());
+      f.addSession("s1.jsonl", "请读取这个文件：" + kept);
+
+      const result = cleanupUnreferencedUploads(f.project, { sessionRoots: [f.sessionsRoot] });
+      assert.deepEqual(result.deleted, ["bbb-orphan.txt"]);
+      assert.equal(result.freedBytes, "payload".length);
+      assert.equal(result.aborted, "");
+      assert.ok(existsSync(kept), "referenced upload stays");
+      assert.equal(existsSync(orphan), false, "unreferenced upload is removed");
+      assert.ok(existsSync(fresh), "recent upload stays even without a reference");
+    } finally {
+      rmSync(f.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does nothing when no session files can be read", () => {
+    const f = fixture();
+    try {
+      const orphan = f.addUpload("bbb-orphan.txt");
+      const emptyRoot = join(f.dir, "empty-sessions");
+      mkdirSync(emptyRoot);
+      const result = cleanupUnreferencedUploads(f.project, { sessionRoots: [emptyRoot] });
+      assert.equal(result.aborted, "no_sessions");
+      assert.deepEqual(result.deleted, []);
+      assert.ok(existsSync(orphan));
+    } finally {
+      rmSync(f.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps every file when the scan budget is exhausted", () => {
+    const f = fixture();
+    try {
+      const orphan = f.addUpload("bbb-orphan.txt");
+      f.addSession("s1.jsonl", "与上传无关的会话内容");
+      const result = cleanupUnreferencedUploads(f.project, {
+        sessionRoots: [f.sessionsRoot],
+        maxScanBytes: 1,
+      });
+      assert.equal(result.aborted, "scan_budget");
+      assert.deepEqual(result.deleted, []);
+      assert.ok(existsSync(orphan));
+    } finally {
+      rmSync(f.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("supports a dry run that reports without deleting", () => {
+    const f = fixture();
+    try {
+      const orphan = f.addUpload("bbb-orphan.txt");
+      f.addSession("s1.jsonl", "与上传无关的会话内容");
+      const result = cleanupUnreferencedUploads(f.project, {
+        sessionRoots: [f.sessionsRoot],
+        dryRun: true,
+      });
+      assert.deepEqual(result.deleted, ["bbb-orphan.txt"]);
+      assert.ok(existsSync(orphan), "dry run never deletes");
+    } finally {
+      rmSync(f.dir, { recursive: true, force: true });
+    }
   });
 });

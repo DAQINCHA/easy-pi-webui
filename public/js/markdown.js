@@ -8,11 +8,28 @@ export function escapeHtml(value) {
 
 // pi 展开 /skill:name 后写入会话的精确信封（见 pi 公开源码
 // dist/core/agent-session.js 的 parseSkillBlock / _expandSkillCommand）。
-// 只认这个完整形状，未知或残缺的 XML 一律原样显示。
-const SKILL_BLOCK_RE = /^<skill name="([^"\n]+)" location="([^"\n]+)">\nReferences are relative to ([^\n]+)\.\n\n([\s\S]*?)\n<\/skill>(?:\n\n([\s\S]+))?$/;
+// 形状仍然是严格的：name/location 属性、References 行、baseDir 一致、闭合标签
+// 缺一不可；放宽的只是无害的空白差异（CRLF、多余空行、行尾空格、
+// 结束标签与用户消息之间少一个空行），避免一个空格就退回整段原文。
+const SKILL_BLOCK_RE = new RegExp(
+  "^[ \\t]*(?:\\n[ \\t]*)*" +
+    '<skill name="([^"\\n]+)" location="([^"\\n]+)">' +
+    "[ \\t]*\\n(?:[ \\t]*\\n)*" +
+    "References are relative to ([^\\n]+)\\.[ \\t]*" +
+    "\\n(?:[ \\t]*\\n)*" +
+    "([\\s\\S]*?)\\n[ \\t]*<\\/skill>[ \\t]*" +
+    "(?:" +
+    "\\n(?:[ \\t]*\\n)*((?=[\\s\\S]*\\S)[\\s\\S]*)" +
+    "|[ \\t\\n]*" +
+    ")$",
+);
 
 export function parseSkillBlock(text) {
-  const match = String(text || "").match(SKILL_BLOCK_RE);
+  const normalized = String(text || "").replace(/\r\n?/g, "\n");
+  // 便宜的预筛：避免在大段普通文本上跑复杂正则。
+  if (!normalized.includes("<skill name=") || !normalized.includes("</skill>")) return null;
+  if (!normalized.includes("References are relative to ")) return null;
+  const match = normalized.match(SKILL_BLOCK_RE);
   if (!match) return null;
   const name = match[1].trim();
   const location = match[2].trim();

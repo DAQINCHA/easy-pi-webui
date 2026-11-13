@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { MAX_FILE_BYTES } from "../lib/files.js";
+import { sessionsDir } from "../lib/sessions.js";
 import { fileReq, startServer, upload } from "./helpers/harness.mjs";
 
 describe("file upload / preview / download HTTP", () => {
@@ -267,5 +268,28 @@ describe("file upload / preview / download HTTP", () => {
     assert.ok(bare);
     assert.ok(!bare.images);
     assert.doesNotMatch(bare.message, /请读取以下附件/);
+  });
+
+  it("cleans up only unreferenced uploads on demand", async () => {
+    const uploads = join(realpathSync(server.projectRoot), "uploads");
+    const orphan = join(uploads, "orphan-" + Date.now() + ".txt");
+    writeFileSync(orphan, "old payload");
+    const stamp = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    utimesSync(orphan, stamp, stamp);
+
+    // 至少有一个可读的会话文件，清理才会执行（读不到会话时一律不删）。
+    const folder = sessionsDir(realpathSync(server.workspace));
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(
+      join(folder, "cleanup.jsonl"),
+      JSON.stringify({ type: "message", message: { role: "user", content: "与上传无关的内容" } }) + "\n",
+    );
+
+    const res = await fetch(server.base + "/api/uploads/cleanup", { method: "POST" });
+    const data = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(data.ok, true);
+    assert.ok(data.deleted.includes(basename(orphan)));
+    assert.equal(existsSync(orphan), false);
   });
 });

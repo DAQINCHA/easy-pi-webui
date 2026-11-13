@@ -188,7 +188,25 @@ describe("compact attachment display", () => {
     assert.equal(app.state.messages[0].content[0].text, original);
   });
 
-  it("copies the exact original text, including leading spaces", async () => {
+  it("copies only visible user text and attachment names by default", async () => {
+    const name = "a.txt";
+    const path = storedPath(name);
+    const original = "保留前导空格\n\n" + block([line(name, path)]);
+    const app = makeApp([userMessage(original)]);
+    let copied = null;
+    app.navigator.clipboard.writeText = async (value) => {
+      copied = value;
+    };
+    app.el.messages.emit("click", { target: app.el.messages.querySelector('[data-act="copy-user"]') });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(copied, "保留前导空格\na.txt");
+    assert.equal(copied.includes(HEADER), false);
+    assert.equal(copied.includes(path), false);
+    assert.equal(copied.includes("路径"), false);
+    assert.equal(copied.includes("展开"), false);
+  });
+
+  it("copies the full raw request only from the explicit full-request action", async () => {
     const name = "a.txt";
     const path = storedPath(name);
     const original = "  保留前导空格\n\n" + block([line(name, path)]);
@@ -197,7 +215,7 @@ describe("compact attachment display", () => {
     app.navigator.clipboard.writeText = async (value) => {
       copied = value;
     };
-    app.el.messages.emit("click", { target: app.el.messages.querySelector('[data-act="copy-user"]') });
+    app.el.messages.emit("click", { target: app.el.messages.querySelector('[data-act="copy-user-full"]') });
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(copied, original);
   });

@@ -53,6 +53,8 @@ const el = {
   ctxText: $("ctxText"),
   queuePill: $("queuePill"),
   queueCount: $("queueCount"),
+  queueRail: $("queueRail"),
+  queueList: $("queueList"),
   hintText: $("hintText"),
   statusHint: $("statusHint"),
   tokChip: $("tokChip"),
@@ -70,6 +72,9 @@ const state = {
   workspaceError: "",
   piVersion: "",
   sessions: [],
+  // 侧栏一次只取这么多；点“加载更早的会话”才继续往后翻。
+  sessionsLimit: 80,
+  sessionsHasMore: false,
   messages: [],
   forkMessages: [],
   forkBusy: false,
@@ -93,7 +98,8 @@ const state = {
   streaming: false,
   compacting: false,
   live: null,
-  optimisticEl: null,
+  // 每条还没写进历史的发出消息各占一个乐观气泡，不能共用一个槽位。
+  optimistic: [],
   // 当前轮次（turn）的 DOM 节点，重绘时按它定位插入点。
   lastTurnNodes: [],
   toolResults: new Map(),
@@ -121,7 +127,13 @@ const state = {
   // 给一个空 Map，避免 renderSessions / markSeen 读到 undefined。
   runtime: new Map(),
   lastSeq: 0,
+  // 运行中发出的消息由 pi 排队：steering / followUp 是服务端队列，
+  // local 是本页刚发出、还没等到 queue_update 确认的条目。
+  queued: { steering: [], followUp: [], local: [], images: [] },
+  // 排队总数（兼容旧逻辑，也方便侧栏/提示读取）。
   queue: 0,
+  queueBusy: false,
+  queueSeq: 0,
   slash: null,
   activity: "",
   railActive: null,
@@ -129,6 +141,22 @@ const state = {
 };
 
 const ICON = (name) => '<svg aria-hidden="true"><use href="#i-' + name + '"/></svg>';
+
+// 与 server.js 的 readBody 上限保持一致：请求体按实际 JSON 字节数预检。
+const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
+
+function requestBodyBytes(body) {
+  return new TextEncoder().encode(JSON.stringify(body)).length;
+}
+
+function requestTooLarge(body, limit = MAX_REQUEST_BYTES) {
+  return requestBodyBytes(body) > limit;
+}
+
+function requestTooLargeMessage(body) {
+  const mb = (requestBodyBytes(body) / (1024 * 1024)).toFixed(1);
+  return "发送内容过大（约 " + mb + " MB，上限 32 MB）。请减少图片或文件后再发送，附件已保留。";
+}
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                             */
@@ -238,6 +266,44 @@ function imageBlocks(message) {
   return message.content.filter((block) => block && block.type === "image");
 }
 
+// 编辑 / 创建分支只回填用户自己写的那部分，不把 Skill 信封和附件说明块塞进输入框。
+function visiblePromptText(value) {
+  const raw = String(value || "");
+  const skill = parseSkillBlock(raw);
+  if (skill) {
+    const userMessage = skill.userMessage || "";
+    const attachment = parseAttachmentBlock(userMessage);
+    return attachment ? attachment.text : userMessage;
+  }
+  const attachment = parseAttachmentBlock(raw);
+  return attachment ? attachment.text : raw;
+}
+
+// 默认复制只取当前可见内容：不读隐藏的 Skill 正文、绝对路径和「展开 / 收起」按钮文案。
+function userVisibleText(node) {
+  const bubble = node.querySelector(".bubble");
+  if (!bubble) return "";
+  const skill = bubble.querySelector(".skill-invoke");
+  const attach = bubble.querySelector(".attach-block");
+  const own = bubble.querySelector(".skill-user-text") || bubble.querySelector(".attach-user-text");
+  if (!skill && !attach) return bubble.textContent;
+  const parts = [];
+  if (skill) {
+    const body = skill.querySelector(".skill-body");
+    if (body && !body.hidden) parts.push(body.textContent);
+  }
+  if (own) parts.push(own.textContent);
+  if (attach) {
+    for (const link of attach.querySelectorAll(".attach-file-name")) parts.push(link.textContent);
+  }
+  // 纯 Skill 消息没有用户文字时，至少复制卡片上可见的 Skill 名字。
+  if (!parts.length && skill) {
+    const name = skill.querySelector(".skill-name");
+    if (name) parts.push(name.textContent);
+  }
+  return parts.filter((part) => part && part.trim()).join("\n").trim();
+}
+
 function formatSize(bytes) {
   const value = Number(bytes) || 0;
   if (value < 1024) return value + " B";
@@ -308,6 +374,27 @@ function applySessionList(list) {
     const known = state.sessionNames.get(session.file);
     return known ? { ...session, name: known.name } : session;
   });
+}
+
+// 快照只带当前这一页的会话；已经“加载更多”翻出来的旧会话不能因为一次
+// 快照就被抹掉。列表刷新（refreshSessions）仍以服务端为准，会清掉失效项。
+function mergeSessionList(list) {
+  const incoming = applySessionList(list || []);
+  if (!Array.isArray(incoming) || !incoming.length) return state.sessions;
+  const merged = [];
+  const seen = new Set();
+  for (const item of incoming) {
+    if (!item || !item.file || seen.has(item.file)) continue;
+    seen.add(item.file);
+    merged.push(item);
+  }
+  for (const item of state.sessions) {
+    if (!item || !item.file || seen.has(item.file)) continue;
+    seen.add(item.file);
+    merged.push(item);
+  }
+  merged.sort((a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0));
+  return merged;
 }
 
 function sessionFileForKey(key) {
@@ -575,6 +662,13 @@ function renderSessions() {
     if (open) {
       for (const session of archived) html += sessionItemHtml(session);
     }
+  }
+
+  if (state.sessionsHasMore) {
+    html +=
+      '<button class="session-more" type="button" data-load-more>' +
+      '<span>加载更早的会话</span>' +
+      "</button>";
   }
 
   // 内容没变就别重建 DOM：重建会打断悬停状态，还会让图标/时间戳的切换重播一次。
@@ -864,18 +958,20 @@ async function resetToWorkspace(data) {
   state.sessionsAppliedSeq = nextSessionsSeq();
   state.stats = {};
   state.streaming = false;
-  state.queue = 0;
+  clearQueued();
   for (const item of state.attachments) {
     if (item && item.abort) item.abort.abort();
   }
   state.attachments = [];
   state.live = null;
-  state.optimisticEl = null;
+  clearOptimistic();
   state.toolResults.clear();
   state.toolLive.clear();
   state.toolOpen.clear();
 
   state.sessions = applySessionList(data.sessions || []);
+  state.sessionsLimit = 80;
+  state.sessionsHasMore = Boolean(data.hasMore);
   state.task = createTaskState();
   state.turnFiles = new Map();
   state.turnSummary = null;
@@ -893,7 +989,6 @@ async function resetToWorkspace(data) {
   updateSendState();
   updateWorking();
   updateHeader();
-  el.queuePill.hidden = true;
 
   try {
     await newSession();
@@ -1018,14 +1113,23 @@ function updateSendState() {
   el.input.disabled = false;
   el.input.placeholder = "给 pi 发消息，输入 / 查看命令";
   const hasText = el.input.value.trim().length > 0 || state.attachments.length > 0;
-  const stop = state.streaming;
+  // 运行中且输入框有内容时，主按钮默认「排队到下一轮」；没内容时才变成停止。
+  const stop = state.streaming && !hasText;
   el.sendBtn.classList.toggle("is-stop", stop);
-  el.sendBtn.disabled = !stop && !hasText;
+  el.sendBtn.disabled = !state.streaming && !hasText;
   setHidden(el.sendBtn.querySelector(".send-icon"), stop);
   setHidden(el.sendBtn.querySelector(".stop-icon"), !stop);
-  el.sendBtn.title = stop ? "停止（Esc）" : hasText ? "发送" : "输入内容后发送";
-  el.hintText.textContent = stop
-    ? "Enter 发送 = 插入当前任务 · Shift + Enter 换行"
+  el.sendBtn.title = stop
+    ? "停止（Esc）"
+    : state.streaming
+      ? "发送并排队到下一轮（Enter）"
+      : hasText
+        ? "发送"
+        : "输入内容后发送";
+  el.hintText.textContent = state.streaming
+    ? hasText
+      ? "Enter 排队到下一轮 · 排队项可插入当前任务 · Esc 停止"
+      : "Enter 排队到下一轮 · Esc 停止"
     : "Enter 发送 · Shift + Enter 换行";
 }
 
@@ -1581,13 +1685,15 @@ function userNode(message, index, ctx = {}) {
   }
   html += "</div>";
   node.innerHTML = html;
-  if (skillAttachments || attachments) node.__copyText = text;
+  node.__copyText = text;
+  node.__rawText = text;
   const foot = document.createElement("div");
   foot.className = "msg-foot";
   let footHtml = '<button class="action" type="button" data-act="copy-user" aria-label="复制内容">' + ICON("copy") + "复制内容</button>";
+  footHtml += '<button class="action" type="button" data-act="copy-user-full" aria-label="复制完整请求" title="包含机器提示词、绝对路径和 Skill 正文，仅供排障">' + ICON("copy") + "复制完整请求</button>";
   if (ctx.forkEntryId) {
     footHtml += forkButton("edit-user", ctx.forkEntryId, "编辑内容", false, "把这条请求放回输入框。只有发送时才会从这里继续，原来的回答还在。取消则不会改动对话", "edit");
-    footHtml += forkButton("branch-user", ctx.forkEntryId, "创建分支", false, "从这条请求之前另开一个独立会话，并把这条完整请求（含图片）放入输入框，不会自动发送。原来的对话还在", "branch");
+    footHtml += forkButton("branch-user", ctx.forkEntryId, "创建分支", false, "从这条请求之前另开一个独立会话，并把这条请求的文字和图片放入输入框，不会自动发送。原来的对话还在", "branch");
   }
   foot.innerHTML = footHtml;
   node.appendChild(foot);
@@ -1997,7 +2103,6 @@ function renderTurnSummary() {
 }
 
 function renderThread() {
-  state.optimisticEl = null;
   indexToolResults();
   el.messages.innerHTML = "";
   let lastNodes = [];
@@ -2019,6 +2124,8 @@ function renderThread() {
   el.empty.hidden = state.messages.length > 0 || state.streaming;
   // 摘要不写进 state.messages，每次重绘都重新插入一次，天然避免重复。
   renderTurnSummary();
+  // 还没写进历史的发出消息重新挂回去；它们各自保留自己的气泡，不能重绘一次就丢。
+  for (const node of state.optimistic) appendToThread([node], { beforeOptimistic: false });
   updateWorking();
   renderRail();
   scrollBottom(true);
@@ -2165,9 +2272,14 @@ function dropStream() {
 }
 
 // 工作提示始终占最后一行：新内容一律插到它前面，而不是追加到它后面。
-function appendToThread(nodes) {
+// 还在排队、尚未写入历史的乐观气泡也要留在新内容后面；只有新气泡自己追加时才跳过这个锚点。
+function appendToThread(nodes, options = {}) {
   const working = el.messages.querySelector(".working");
-  const anchor = working && working.parentNode === el.messages ? working : null;
+  let anchor = working && working.parentNode === el.messages ? working : null;
+  if (options.beforeOptimistic !== false) {
+    const pending = state.optimistic.find((node) => node.parentNode === el.messages);
+    if (pending) anchor = pending;
+  }
   for (const node of nodes) {
     if (anchor) el.messages.insertBefore(node, anchor);
     else el.messages.appendChild(node);
@@ -2223,6 +2335,7 @@ function addNotice(text) {
 
 function applySnapshot(snapshot, seq = nextSessionsSeq()) {
   const switched = state.key !== snapshot.key;
+  const workspaceChanged = Boolean(snapshot.workspace) && Boolean(state.workspace) && snapshot.workspace !== state.workspace;
   const sameSession = !switched && state.file === (snapshot.sessionFile || null);
   state.key = snapshot.key;
   const file = snapshot.sessionFile || null;
@@ -2246,7 +2359,8 @@ function applySnapshot(snapshot, seq = nextSessionsSeq()) {
   state.streaming = Boolean(snapshot.state && snapshot.state.isStreaming);
   state.compacting = Boolean(snapshot.state && snapshot.state.isCompacting);
   if (!state.streaming) state.live = null;
-  state.queue = 0;
+  // 刷新快照时不要抹掉正在显示的服务端队列；只有切会话或已经停下来才清空。
+  if (switched || !state.streaming) clearQueued();
   state.toolResults.clear();
   state.toolLive.clear();
   state.toolOpen.clear();
@@ -2254,6 +2368,7 @@ function applySnapshot(snapshot, seq = nextSessionsSeq()) {
   state.skillOpen.clear();
   state.attachOpen.clear();
   if (switched) {
+    clearOptimistic();
     for (const item of state.attachments) {
       if (item && item.abort) item.abort.abort();
     }
@@ -2272,12 +2387,21 @@ function applySnapshot(snapshot, seq = nextSessionsSeq()) {
   if (file && !stale && snapshotName) rememberSessionName(file, state.sessionName, seq);
   if (Array.isArray(snapshot.sessions) && seq >= state.sessionsAppliedSeq) {
     state.sessionsAppliedSeq = seq;
-    state.sessions = applySessionList(snapshot.sessions);
+    state.sessions = workspaceChanged
+      ? applySessionList(snapshot.sessions)
+      : mergeSessionList(snapshot.sessions);
+    // 快照只按默认一页取；用户已经“加载更多”时，不能被它改回“还有更多”。
+    if (typeof snapshot.hasMore === "boolean" && (!snapshot.limit || snapshot.limit >= state.sessionsLimit)) {
+      state.sessionsHasMore = snapshot.hasMore;
+    }
   }
 
   if (state.file) {
     try {
-      localStorage.setItem("piwebui.last", JSON.stringify({ file: state.file }));
+      localStorage.setItem(
+        "piwebui.last",
+        JSON.stringify({ file: state.file, id: (state.key || "").replace(/^s:/, "") }),
+      );
     } catch {
       /* ignore */
     }
@@ -2495,7 +2619,7 @@ async function startEdit(entryId) {
       key: state.key,
       images: prompt.images || [],
     };
-    fillComposer(prompt.text || "", prompt.images || []);
+    fillComposer(visiblePromptText(prompt.text || ""), prompt.images || []);
     renderPendingEditHint();
     toast("原文已放回输入框。不发送就不会改动当前对话");
   } catch (error) {
@@ -2541,26 +2665,35 @@ async function commitPendingEdit() {
   }
   const previousText = el.input.value;
   const previousAttachments = state.attachments.slice();
+  const outgoing = message || (images.length ? "请看这张图片。" : text);
+  const requestBody = {
+    key: pending.key || state.key,
+    file: pending.file || state.file,
+    mode: "edit-send",
+    entryId: pending.entryId,
+    from: "user",
+    message: outgoing,
+    images,
+  };
+  if (requestTooLarge(requestBody)) {
+    toast(requestTooLargeMessage(requestBody), "error");
+    return;
+  }
   el.input.value = "";
   autosize();
   state.attachments = [];
   renderAttachments();
   updateSendState();
   closeSlash();
-  addOptimisticUser(message || text, images.map((image) => ({ type: "image", data: image.data, mimeType: image.mimeType })));
+  const optimistic = addOptimisticUser(
+    outgoing,
+    images.map((image) => ({ type: "image", data: image.data, mimeType: image.mimeType })),
+  );
   state.forkBusy = true;
   setForkButtonsBusy(true);
   const seq = nextSessionsSeq();
   try {
-    const data = await api("/api/session/branch", {
-      key: pending.key || state.key,
-      file: pending.file || state.file,
-      mode: "edit-send",
-      entryId: pending.entryId,
-      from: "user",
-      message: message || "请看这张图片。",
-      images,
-    });
+    const data = await api("/api/session/branch", requestBody);
     state.pendingEdit = null;
     renderPendingEditHint();
     if (data.snapshot) {
@@ -2569,20 +2702,14 @@ async function commitPendingEdit() {
       if (data.snapshot.key !== previousKey) connectStream();
     }
     if (data.ok === false || data.sent === false) {
-      if (state.optimisticEl) {
-        state.optimisticEl.remove();
-        state.optimisticEl = null;
-      }
+      removeOptimistic(optimistic);
       fillComposer(previousText, images);
       toast(branchApiError(null, data), "error");
       return;
     }
     toast("已从这条请求继续，原来的回答还在");
   } catch (error) {
-    if (state.optimisticEl) {
-      state.optimisticEl.remove();
-      state.optimisticEl = null;
-    }
+    removeOptimistic(optimistic);
     const data = error && error.data;
     if (data && data.snapshot) {
       const previousKey = state.key;
@@ -2673,10 +2800,10 @@ async function runSessionBranch(mode, entryId, from) {
       toast("已创建分支，复制了当前完整对话。原来的会话还在。输入框是空的，不会自动执行");
       return;
     }
-    fillComposer(data.draft || "", data.images || []);
+    fillComposer(visiblePromptText(data.draft || ""), data.images || []);
     state.pendingEdit = null;
     renderPendingEditHint();
-    toast("已创建分支。原来的会话还在。输入框里是这条完整请求，改完再发送，不会自动执行");
+    toast("已创建分支。原来的会话还在。输入框里是你写的内容和图片，改完再发送，不会自动执行");
   } catch (error) {
     const data = error && error.data;
     if (data && data.snapshot) {
@@ -2887,11 +3014,14 @@ async function refreshStats() {
 async function refreshSessions() {
   const seq = nextSessionsSeq();
   try {
-    const data = await api("/api/sessions");
+    // 带上当前会话：它可能比这一页更早，刷新时不能被挤掉。
+    const include = state.file ? [state.file] : [];
+    const data = await api("/api/sessions", { limit: state.sessionsLimit, include });
     // 比已应用的列表更旧的响应直接丢掉：它可能把新标题盖回去。
     if (seq < state.sessionsAppliedSeq) return;
     state.sessionsAppliedSeq = seq;
     state.sessions = applySessionList(data.sessions || []);
+    state.sessionsHasMore = Boolean(data.hasMore);
     // 当前会话没有明确标题时，列表就是最新来源（快照已经写过明确标题）。
     if (state.file && !state.sessionNames.has(state.file)) {
       const active = state.sessions.find((session) => session.file === state.file);
@@ -2979,8 +3109,7 @@ function handleEvent(event) {
     case "agent_settled": {
       state.streaming = false;
       state.activity = "";
-      state.queue = 0;
-      el.queuePill.hidden = true;
+      clearQueued();
       dropStream();
       updateSendState();
       updateWorking();
@@ -3003,11 +3132,7 @@ function handleEvent(event) {
     }
 
     case "queue_update": {
-      const steering = Array.isArray(event.steering) ? event.steering.length : 0;
-      const follow = Array.isArray(event.followUp) ? event.followUp.length : 0;
-      state.queue = steering + follow;
-      el.queuePill.hidden = state.queue === 0;
-      el.queueCount.textContent = String(state.queue);
+      applyQueueUpdate(event);
       break;
     }
 
@@ -3128,10 +3253,10 @@ function finishMessage(message) {
     scrollBottom();
     refreshStats();
   } else if (message.role === "user") {
-    if (state.optimisticEl) {
-      state.optimisticEl.remove();
-      state.optimisticEl = null;
-    }
+    // 乐观气泡对应「已经在发/插入」的消息；排队到下一轮的消息没有气泡，
+    // 等它真正进入历史时才从排队区摘掉。回放旧历史时不要动当前队列。
+    const settled = settleOptimisticUser(message);
+    if (!settled && !state.replaying) consumeQueued(textOf(message));
     state.messages.push(message);
     // 新用户消息 = 新的一轮：渲染这一轮并追加到末尾。
     const turns = buildTurns(state.messages);
@@ -3194,12 +3319,299 @@ function autosize() {
   el.input.style.height = Math.min(el.input.scrollHeight, maxInputHeight()) + "px";
 }
 
+function sameStringList(a, b) {
+  if (a.length !== b.length) return false;
+  return a.every((value, index) => value === b[index]);
+}
+
+function removeOptimistic(node) {
+  const index = state.optimistic.indexOf(node);
+  if (index !== -1) state.optimistic.splice(index, 1);
+  if (node) node.remove();
+}
+
+function clearOptimistic() {
+  for (const node of state.optimistic) node.remove();
+  state.optimistic = [];
+}
+
 function addOptimisticUser(text, images) {
-  const node = userNode({ role: "user", content: images.concat(text ? [{ type: "text", text }] : []) });
-  el.messages.appendChild(node);
-  state.optimisticEl = node;
+  const content = (images || []).concat(text ? [{ type: "text", text }] : []);
+  const node = userNode({ role: "user", content });
+  node.__optimisticText = text || "";
+  node.__optimisticImages = (images || []).map((image) => image.data || "");
+  state.optimistic.push(node);
+  appendToThread([node], { beforeOptimistic: false });
   el.empty.hidden = true;
   scrollBottom(true);
+  return node;
+}
+
+// 收到真实用户消息时只摘掉对应的那一个乐观气泡，不影响还在排队的其他消息。
+function settleOptimisticUser(message) {
+  if (!state.optimistic.length) return false;
+  const text = textOf(message);
+  const data = imageBlocks(message).map((block) => block.data || "");
+  let index = state.optimistic.findIndex(
+    (node) => node.__optimisticText === text && sameStringList(node.__optimisticImages, data),
+  );
+  if (index === -1) index = state.optimistic.findIndex((node) => node.__optimisticText === text);
+  if (index === -1) index = 0;
+  const [node] = state.optimistic.splice(index, 1);
+  if (node) node.remove();
+  return Boolean(node);
+}
+
+/* ------------------------------------------------------------------ */
+/* queue                                                               */
+/* ------------------------------------------------------------------ */
+
+// queue_update 的字段是字符串数组；兼容以后可能变成消息对象的写法。
+function queueText(value) {
+  if (typeof value === "string") return value;
+  if (value && typeof value.text === "string") return value.text;
+  return "";
+}
+
+// 队列里只显示用户自己能看到的那部分：Skill 信封、附件说明块、绝对路径都不摊开。
+function queueSummary(raw) {
+  const clip = (text) => (text.length > 160 ? text.slice(0, 160) + "…" : text);
+  const visible = visiblePromptText(raw).replace(/\s+/g, " ").trim();
+  if (visible) return clip(visible);
+  const attachment = parseAttachmentBlock(raw);
+  if (attachment && attachment.files.length) return clip(attachment.files.map((file) => file.name).join("、"));
+  const skill = parseSkillBlock(raw);
+  if (skill) return clip("Skill：" + skill.name);
+  return "（无文字内容）";
+}
+
+function queueItems() {
+  // 排队区只放「等当前任务结束后再发」的 followUp。steering 已经插进当前任务，
+  // 会以乐观气泡出现在线程里，不再在排队区重复显示。
+  const items = [];
+  for (const raw of state.queued.followUp) items.push({ raw, kind: "followUp", local: false });
+  for (const item of state.queued.local) {
+    items.push({ raw: item.raw, kind: "followUp", local: true, pending: item.pending });
+  }
+  return items;
+}
+
+function queueItemHtml(item, index) {
+  const summary = queueSummary(item.raw);
+  const kind = "下一轮";
+  const actions =
+    '<span class="queue-acts">' +
+    '<button class="queue-act insert" type="button" data-act="insert-queued" data-queue-index="' + index + '"' +
+    ' aria-label="插入当前任务" title="插入当前任务：不再等下一轮，直接交给正在运行的任务"' +
+    (state.queueBusy ? " disabled" : "") + ">" + ICON("bolt") + "插入任务</button>" +
+    '<button class="queue-act cancel" type="button" data-act="cancel-queued" data-queue-index="' + index + '"' +
+    ' aria-label="取消排队" title="取消排队：这条不再发送"' +
+    (state.queueBusy ? " disabled" : "") + ">" + ICON("x") + "取消</button>" +
+    "</span>";
+  return (
+    '<div class="queue-item is-' + item.kind + '" role="listitem" data-queue-index="' + index + '">' +
+    '<span class="queue-kind">' + kind + "</span>" +
+    '<span class="queue-text" title="' + escapeHtml(summary) + '">' + escapeHtml(summary) + "</span>" +
+    actions +
+    "</div>"
+  );
+}
+
+function renderQueue() {
+  const items = queueItems();
+  state.queue = items.length;
+  if (el.queueRail) el.queueRail.hidden = items.length === 0;
+  if (el.queuePill) el.queuePill.hidden = items.length === 0;
+  if (el.queueCount) el.queueCount.textContent = String(items.length);
+  if (el.queueList) el.queueList.innerHTML = items.length ? items.map(queueItemHtml).join("") : "";
+  syncQueueOffset();
+}
+
+// 排队区把输入框整体顶高，"回到底部"按钮要跟着抬高，不能压在排队条目上。
+function syncQueueOffset() {
+  const height = el.queueRail && !el.queueRail.hidden ? el.queueRail.offsetHeight + 10 : 0;
+  if (document.documentElement && document.documentElement.style) {
+    document.documentElement.style.setProperty("--queue-offset", height + "px");
+  }
+}
+
+function clearQueued() {
+  state.queued.steering = [];
+  state.queued.followUp = [];
+  state.queued.local = [];
+  state.queued.images = [];
+  renderQueue();
+}
+
+function addLocalQueued(raw, images) {
+  state.queueSeq += 1;
+  const item = { id: "q" + state.queueSeq, raw, images: (images || []).slice(), pending: null };
+  state.queued.local.push(item);
+  if (item.images.length) state.queued.images.push({ raw, images: item.images });
+  renderQueue();
+  return item;
+}
+
+function removeLocalQueued(item, keepImages = false) {
+  const index = state.queued.local.indexOf(item);
+  if (index !== -1) state.queued.local.splice(index, 1);
+  if (!keepImages && item && item.images && item.images.length) dropQueuedImages(item.raw);
+  renderQueue();
+}
+
+function removeLocalByRaw(raw) {
+  const index = state.queued.local.findIndex((item) => item.raw === raw);
+  if (index === -1) return false;
+  state.queued.local.splice(index, 1);
+  return true;
+}
+
+function takeQueuedImages(raw) {
+  const index = state.queued.images.findIndex((entry) => entry.raw === raw);
+  if (index === -1) return [];
+  const [entry] = state.queued.images.splice(index, 1);
+  return entry.images || [];
+}
+
+function dropQueuedImages(raw) {
+  const index = state.queued.images.findIndex((entry) => entry.raw === raw);
+  if (index !== -1) state.queued.images.splice(index, 1);
+}
+
+function applyQueueUpdate(event) {
+  // 插入/取消正在 clear_queue → 重新入队，中间会产生一串不完整的 queue_update。
+  // 这段时间以本页刚设置的状态为准，避免排队区闪空或把还没放回去的条目图片删掉。
+  if (state.queueBusy) return;
+  const steering = (Array.isArray(event.steering) ? event.steering : []).map(queueText).filter(Boolean);
+  const followUp = (Array.isArray(event.followUp) ? event.followUp : []).map(queueText).filter(Boolean);
+  // 服务端已经确认的条目不再重复显示；还没等到确认的本地条目继续留在队列区。
+  const pending = followUp.slice();
+  state.queued.local = state.queued.local.filter((item) => {
+    const index = pending.indexOf(item.raw);
+    if (index === -1) return true;
+    pending.splice(index, 1);
+    return false;
+  });
+  state.queued.steering = steering;
+  state.queued.followUp = followUp;
+  // 已经不在队列里的条目不再需要保留图片，避免缓存越积越多。
+  const present = new Set([...steering, ...followUp, ...state.queued.local.map((item) => item.raw)]);
+  state.queued.images = state.queued.images.filter((entry) => present.has(entry.raw));
+  renderQueue();
+}
+
+function consumeQueued(raw) {
+  if (!raw) return;
+  let changed = false;
+  for (const key of ["steering", "followUp"]) {
+    const index = state.queued[key].indexOf(raw);
+    if (index !== -1) {
+      state.queued[key].splice(index, 1);
+      changed = true;
+      break;
+    }
+  }
+  if (removeLocalByRaw(raw)) changed = true;
+  dropQueuedImages(raw);
+  if (changed) renderQueue();
+}
+
+function removeQueuedOccurrence(queues, raw) {
+  for (const key of ["steering", "followUp"]) {
+    const index = queues[key].indexOf(raw);
+    if (index !== -1) {
+      queues[key].splice(index, 1);
+      return true;
+    }
+  }
+  return false;
+}
+
+async function sendQueuedRaw(raw, behavior, images) {
+  const body = { key: state.key, message: raw, behavior };
+  const list = images || takeQueuedImages(raw);
+  if (list && list.length) body.images = list;
+  return api("/api/chat", body);
+}
+
+// 把一条 followUp 改成 steer：pi 没有「单条出队」接口，只能用 clear_queue
+// 取出完整队列，再把其余条目按原顺序放回去。图片来自本页发送时的缓存。
+async function insertQueuedItem(item) {
+  if (!item || !state.key || state.queueBusy) return;
+  if (item.pending) {
+    try {
+      await item.pending;
+    } catch {
+      return;
+    }
+  }
+  if (!queueItems().some((entry) => entry.raw === item.raw)) return;
+  state.queueBusy = true;
+  renderQueue();
+  try {
+    const response = await api("/api/command", { key: state.key, command: { type: "clear_queue" } });
+    if (response && response.success === false) throw new Error(response.error || "清空排队失败");
+    const data = (response && response.data) || {};
+    const queues = {
+      steering: Array.isArray(data.steering) ? data.steering.slice() : [],
+      followUp: Array.isArray(data.followUp) ? data.followUp.slice() : [],
+    };
+    removeQueuedOccurrence(queues, item.raw);
+    state.queued.steering = queues.steering;
+    state.queued.followUp = queues.followUp;
+    removeLocalByRaw(item.raw);
+    renderQueue();
+
+    const chosenImages = takeQueuedImages(item.raw);
+    await sendQueuedRaw(item.raw, "steer", chosenImages);
+    for (const raw of queues.steering) await sendQueuedRaw(raw, "steer");
+    for (const raw of queues.followUp) await sendQueuedRaw(raw, "followUp");
+    // 插入当前任务的消息已经真正发出，可以像普通发送一样先占一个乐观气泡。
+    addOptimisticUser(item.raw, chosenImages);
+    toast("已插入当前任务");
+  } catch (error) {
+    toast("插入失败：" + error.message, "error");
+  } finally {
+    state.queueBusy = false;
+    renderQueue();
+  }
+}
+
+async function cancelQueuedItem(item) {
+  if (!item || !state.key || state.queueBusy) return;
+  if (item.pending) {
+    try {
+      await item.pending;
+    } catch {
+      return;
+    }
+  }
+  if (!queueItems().some((entry) => entry.raw === item.raw)) return;
+  state.queueBusy = true;
+  renderQueue();
+  try {
+    const response = await api("/api/command", { key: state.key, command: { type: "clear_queue" } });
+    if (response && response.success === false) throw new Error(response.error || "清空排队失败");
+    const data = (response && response.data) || {};
+    const queues = {
+      steering: Array.isArray(data.steering) ? data.steering.slice() : [],
+      followUp: Array.isArray(data.followUp) ? data.followUp.slice() : [],
+    };
+    removeQueuedOccurrence(queues, item.raw);
+    state.queued.steering = queues.steering;
+    state.queued.followUp = queues.followUp;
+    removeLocalByRaw(item.raw);
+    dropQueuedImages(item.raw);
+    renderQueue();
+    for (const raw of queues.steering) await sendQueuedRaw(raw, "steer");
+    for (const raw of queues.followUp) await sendQueuedRaw(raw, "followUp");
+    toast("已取消排队");
+  } catch (error) {
+    toast("取消排队失败：" + error.message, "error");
+  } finally {
+    state.queueBusy = false;
+    renderQueue();
+  }
 }
 
 async function sendMessage() {
@@ -3232,6 +3644,18 @@ async function sendMessage() {
     .map((item) => ({ type: "image", data: item.data, mimeType: item.mime }));
   const files = pending.filter((item) => item.kind === "file" && item.storedPath);
   const message = appendAttachmentContext(text, files);
+  const outgoing = message || (images.length ? "请看这张图片。" : text);
+  const body = { key: state.key, message: outgoing };
+  if (images.length) body.images = images;
+  // 运行中默认排到下一轮；要插入当前任务，去排队区点那条消息上的按钮。
+  if (state.streaming) body.behavior = "followUp";
+  if (requestTooLarge(body)) {
+    toast(requestTooLargeMessage(body), "error");
+    return;
+  }
+
+  const previousText = el.input.value;
+  const previousAttachments = state.attachments.slice();
   el.input.value = "";
   autosize();
   state.attachments = [];
@@ -3239,20 +3663,34 @@ async function sendMessage() {
   updateSendState();
   closeSlash();
 
-  addOptimisticUser(message || text, images.map((image) => ({ type: "image", data: image.data, mimeType: image.mimeType })));
-
-  const body = { key: state.key, message: message || "请看这张图片。" };
-  if (images.length) body.images = images;
-  if (state.streaming) body.behavior = "steer";
+  // 运行中的消息先进排队区，不占线程末尾的「已发送」位置。
+  const queued = state.streaming
+    ? addLocalQueued(
+        outgoing,
+        images.map((image) => ({ type: "image", data: image.data, mimeType: image.mimeType })),
+      )
+    : null;
+  const optimistic = queued
+    ? null
+    : addOptimisticUser(
+        outgoing,
+        images.map((image) => ({ type: "image", data: image.data, mimeType: image.mimeType })),
+      );
 
   try {
-    await api("/api/chat", body);
-  } catch (error) {
-    if (state.optimisticEl) {
-      state.optimisticEl.remove();
-      state.optimisticEl = null;
+    const request = api("/api/chat", body);
+    if (queued) queued.pending = request;
+    const data = await request;
+    // pi 直接把消息处理掉了（例如扩展命令），没有真正进队列，就不要继续显示成排队中。
+    if (queued && data && data.disposition && data.disposition !== "queued") {
+      removeLocalQueued(queued);
     }
-    el.input.value = text;
+  } catch (error) {
+    if (queued) removeLocalQueued(queued);
+    if (optimistic) removeOptimistic(optimistic);
+    el.input.value = previousText;
+    state.attachments = previousAttachments;
+    renderAttachments();
     autosize();
     updateSendState();
     toast("发送失败：" + error.message, "error");
@@ -4398,6 +4836,17 @@ function bindEvents() {
   });
 
   el.sessionList.addEventListener("click", (event) => {
+    const loadMore = event.target.closest("[data-load-more]");
+    if (loadMore) {
+      loadMore.disabled = true;
+      // 服务端一页最多 1000；到顶后再点也不会更多，交给搜索。
+      state.sessionsLimit = Math.min(1000, state.sessionsLimit + 80);
+      refreshSessions().finally(() => {
+        if (document.body.contains(loadMore)) loadMore.disabled = false;
+      });
+      return;
+    }
+
     const toggle = event.target.closest("[data-toggle-archive]");
     if (toggle) {
       state.archivedOpen = !state.archivedOpen;
@@ -4519,9 +4968,21 @@ function bindEvents() {
   });
 
   el.sendBtn.addEventListener("click", () => {
-    if (state.streaming) abortRun();
+    if (el.sendBtn.classList.contains("is-stop")) abortRun();
     else sendMessage();
   });
+
+  el.queueList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-act]");
+    if (!button || state.queueBusy) return;
+    const index = Number(button.getAttribute("data-queue-index"));
+    const item = queueItems()[index];
+    if (!item) return;
+    if (button.getAttribute("data-act") === "insert-queued") insertQueuedItem(item);
+    else if (button.getAttribute("data-act") === "cancel-queued") cancelQueuedItem(item);
+  });
+  // 首次进入页面时把 HTML 里的隐藏状态和内存队列对齐。
+  renderQueue();
 
   el.suggestions.addEventListener("click", (event) => {
     const button = event.target.closest("[data-suggest]");
@@ -4633,16 +5094,23 @@ function bindEvents() {
       }
       const node = action.closest(".msg");
       if (!node) return;
-      // 只复制正文，不要把过程摘要、卡片内容、「复制 / 编辑 / 重新生成 / 创建分支」这些按钮文字带进去。
-      const parts = [];
-      const bubble = node.querySelector(".bubble");
-      if (bubble) {
-        parts.push(bubble.innerText);
+      // 默认复制只取当前可见内容；完整原始请求只走单独的「复制完整请求」。
+      let text = "";
+      if (act === "copy-user-full") {
+        text = typeof node.__rawText === "string" ? node.__rawText : "";
+      } else if (node.classList.contains("user")) {
+        text = userVisibleText(node);
       } else {
-        for (const child of node.querySelectorAll(".body > .markdown")) parts.push(child.innerText);
+        // 助手回复只复制正文，不要把过程摘要、卡片内容和操作按钮文字带进去。
+        const parts = [];
+        const bubble = node.querySelector(".bubble");
+        if (bubble) {
+          parts.push(bubble.innerText);
+        } else {
+          for (const child of node.querySelectorAll(".body > .markdown")) parts.push(child.innerText);
+        }
+        text = parts.join("\n").trim();
       }
-      // 附件块命中时 __copyText 就是原始正文，按字节保留（含首尾空白）。
-      const text = typeof node.__copyText === "string" ? node.__copyText : parts.join("\n").trim();
       if (text) {
         navigator.clipboard.writeText(text).then(
           () => toast("已复制"),
@@ -4814,13 +5282,24 @@ async function boot() {
   watchNotifyPermission();
   bindSessionListScrollbar();
 
+  let last = null;
   try {
-    const bootstrap = await api("/api/bootstrap");
+    last = JSON.parse(localStorage.getItem("piwebui.last") || "null");
+  } catch {
+    last = null;
+  }
+
+  try {
+    // 上次打开的会话可能已经掉出最近 80 条；明确带上它，免得刷新后
+    // 找不到而误开一个新会话。
+    const include = last && last.file ? "?include=" + encodeURIComponent(last.file) : "";
+    const bootstrap = await api("/api/bootstrap" + include);
     state.workspace = bootstrap.workspace || "";
     state.needsWorkspace = Boolean(bootstrap.needsWorkspace);
     state.workspaceError = bootstrap.workspaceError || "";
     state.piVersion = bootstrap.piVersion || "";
     state.sessions = applySessionList(bootstrap.sessions || []);
+    state.sessionsHasMore = Boolean(bootstrap.hasMore);
     if (state.workspace) rememberWorkspace(state.workspace);
     updateWorkspace();
     updateWorkspaceGate();
@@ -4835,13 +5314,13 @@ async function boot() {
       return;
     }
 
-    let last = null;
-    try {
-      last = JSON.parse(localStorage.getItem("piwebui.last") || "null");
-    } catch {
-      last = null;
-    }
-    const existing = last && last.file ? state.sessions.find((session) => session.file === last.file) : null;
+    // 路径写法偶尔会不一致（软链接 / 真实路径），再按会话 id 兜一次，
+    // 免得明明还在列表里却误开一个新会话。
+    const existing =
+      last && last.file
+        ? state.sessions.find((session) => session.file === last.file) ||
+          (last.id ? state.sessions.find((session) => session.id === last.id) : null)
+        : null;
     if (existing) await openSession(existing.file);
     else await newSession();
   } catch (error) {

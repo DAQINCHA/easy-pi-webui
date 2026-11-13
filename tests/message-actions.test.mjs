@@ -32,12 +32,14 @@ function acts(source) {
 }
 
 describe("message action buttons", () => {
-  it("keeps copy and edit on user messages, adds create-branch, and does not put regenerate or clone there", () => {
+  it("keeps copy, full-request copy and edit on user messages, adds create-branch, and does not put regenerate or clone there", () => {
     const source = functionSource("userNode");
     const names = acts(source);
-    assert.deepEqual(names, ["copy-user", "edit-user", "branch-user"]);
+    assert.deepEqual(names, ["copy-user", "copy-user-full", "edit-user", "branch-user"]);
     assert.match(source, /data-act="copy-user"/);
     assert.ok(source.includes('ICON("copy") + "复制内容</button>'));
+    assert.ok(source.includes('data-act="copy-user-full"'));
+    assert.ok(source.includes('ICON("copy") + "复制完整请求</button>'));
     assert.match(source, /forkButton\("edit-user".*"编辑内容"[\s\S]*"edit"\)/);
     assert.match(source, /forkButton\("branch-user".*"创建分支"[\s\S]*"branch"\)/);
     assert.match(source, /aria-label="复制内容"/);
@@ -79,6 +81,8 @@ describe("message action buttons", () => {
     assert.doesNotMatch(route[0], /copy-user|copy-bot/);
     assert.match(SOURCE, /navigator\.clipboard\.writeText\(text\)/);
     assert.match(SOURCE, /toast\("已复制"\)/);
+    assert.match(SOURCE, /act === "copy-user-full"/);
+    assert.match(SOURCE, /userVisibleText\(node\)/);
     const handle = functionSource("handleForkAction");
     assert.match(handle, /runSessionBranch\("fork", entryId, "user"\)/);
     assert.match(handle, /runSessionBranch\("clone", entryId, "assistant"\)/);

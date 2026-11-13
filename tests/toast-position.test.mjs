@@ -35,10 +35,14 @@ describe("toast position stays over the chat composer", () => {
   it("anchors the stack 16px above the composer, centered in the chat column", () => {
     const shell = HTML.match(/<div class="composer-shell">[\s\S]*?<div class="composer-hint">/);
     assert.ok(shell, "missing composer-shell");
-    assert.match(
-      shell[0],
-      /<div class="composer-stack">\s*<div class="toasts" id="toasts"><\/div>\s*<div class="composer" id="composer">/,
-    );
+    // 通知、排队区、输入框都挂在同一个 composer-stack 里，顺序固定。
+    const toastsAt = shell[0].indexOf('id="toasts"');
+    const queueAt = shell[0].indexOf('id="queueRail"');
+    const composerAt = shell[0].indexOf('id="composer"');
+    assert.ok(toastsAt !== -1, "missing toasts in composer-stack");
+    assert.ok(queueAt !== -1, "missing queue rail in composer-stack");
+    assert.ok(composerAt !== -1, "missing composer in composer-stack");
+    assert.ok(toastsAt < queueAt && queueAt < composerAt, "stack order must be toasts → queue → composer");
     assert.equal((HTML.match(/id="toasts"/g) || []).length, 1);
     assert.doesNotMatch(HTML.slice(HTML.indexOf("</main>")), /id="toasts"/);
 

@@ -71,6 +71,41 @@ describe("skill invocation display", () => {
     assert.equal(parseSkillBlock(envelope + " trailing"), null);
   });
 
+  it("still collapses when only harmless whitespace differs", () => {
+    const variants = [
+      envelope.replace(/\n/g, "\r\n"), // CRLF
+      "  " + envelope, // 前导空格
+      envelope + "\n", // 结尾多一个换行
+      envelope + "\n\n\n", // 结尾多几个空行
+      envelope + "   \n\n  ", // 结尾只有空白
+      envelope.replace("</skill>", "</skill>   "), // 结束标签行尾空格
+      envelope.replace("\n\n" + body, "\n\n\n" + body), // 正文前多一个空行
+      envelope.replace("\n\n" + body, "\n" + body), // 正文前少一个空行
+    ];
+    for (const variant of variants) {
+      const parsed = parseSkillBlock(variant);
+      assert.ok(parsed, "should still parse: " + JSON.stringify(variant.slice(0, 60)));
+      assert.equal(parsed.name, "pdf-tools");
+      assert.equal(parsed.content, body);
+      assert.equal(parsed.userMessage, undefined);
+    }
+  });
+
+  it("accepts a single blank line before the user args and keeps them byte-for-byte", () => {
+    const parsed = parseSkillBlock(envelope + "\nextract report.pdf");
+    assert.ok(parsed);
+    assert.equal(parsed.userMessage, "extract report.pdf");
+
+    const spaced = parseSkillBlock(envelope.replace("</skill>", "</skill>  ") + "\n\n  extract  ");
+    assert.ok(spaced);
+    assert.equal(spaced.userMessage, "  extract  ");
+  });
+
+  it("does not treat ordinary text that mentions the envelope as a skill block", () => {
+    assert.equal(parseSkillBlock("看这个：\n" + envelope), null);
+    assert.equal(parseSkillBlock("普通消息提到 <skill name=\"x\"> 和 </skill> 但不是信封"), null);
+  });
+
   it("renders a collapsed skill body with optional args outside it, and toggles via real events", () => {
     const original = envelope + "\n\nextract report.pdf";
     const app = loadApp({
@@ -110,6 +145,56 @@ describe("skill invocation display", () => {
     assert.equal(bodyEl.hidden, false, "rerender preserves the open state");
 
     assert.equal(app.state.messages[0].content[0].text, original, "message content is never rewritten");
+  });
+
+  it("copies only the visible skill text by default and keeps the raw envelope behind full-request copy", async () => {
+    const original = envelope + "\n\n  extract report.pdf  ";
+    const app = loadApp({
+      fetch: async (path) => {
+        if (path === "/api/sessions") return jsonResponse({ sessions: [] });
+        if (path === "/api/stats") return jsonResponse({});
+        return jsonResponse({ success: true });
+      },
+    });
+    app.state.key = "s:1";
+    app.state.file = "/ws/s.jsonl";
+    app.state.workspace = "/ws";
+    app.state.messages = [{ role: "user", content: [{ type: "text", text: original }] }];
+    app.bindEvents();
+    app.renderThread();
+    let copied = null;
+    app.navigator.clipboard.writeText = async (value) => {
+      copied = value;
+    };
+    const message = app.el.messages.querySelector(".msg.user");
+
+    app.el.messages.emit("click", { target: message.querySelector('[data-act="copy-user"]') });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(copied, "extract report.pdf");
+    assert.equal(copied.includes("References"), false);
+    assert.equal(copied.includes("展开"), false);
+
+    app.el.messages.emit("click", { target: message.querySelector("[data-skill-toggle]") });
+    app.el.messages.emit("click", { target: message.querySelector('[data-act="copy-user"]') });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(copied, body + "\n  extract report.pdf");
+
+    app.el.messages.emit("click", { target: message.querySelector('[data-act="copy-user-full"]') });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(copied, original);
+  });
+
+  it("fills edit and branch drafts with visible text instead of the skill envelope", () => {
+    const app = loadApp({
+      fetch: async (path) => {
+        if (path === "/api/sessions") return jsonResponse({ sessions: [] });
+        if (path === "/api/stats") return jsonResponse({});
+        return jsonResponse({ success: true });
+      },
+    });
+    assert.equal(app.visiblePromptText(envelope + "\n\nextract report.pdf"), "extract report.pdf");
+    assert.equal(app.visiblePromptText(envelope), "");
+    assert.equal(app.visiblePromptText("普通文字"), "普通文字");
   });
 });
 

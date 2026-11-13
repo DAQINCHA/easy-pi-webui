@@ -158,6 +158,13 @@
     <div class="composer-shell">
       <div class="composer-stack">
       <div class="toasts" id="toasts"></div>
+      <div class="queue-rail" id="queueRail" hidden>
+        <div class="queue-head">
+          <span class="queue-pill" id="queuePill">排队中 <b id="queueCount">0</b></span>
+          <span class="queue-hint">还没发出 · 当前任务结束后自动发送 · 悬停可插入当前任务</span>
+        </div>
+        <div class="queue-list" id="queueList" role="list"></div>
+      </div>
       <div class="composer" id="composer">
         <div class="attach-row" id="attachRow" hidden></div>
         <div class="pending-edit-bar" id="pendingEditBar" hidden>
@@ -190,7 +197,6 @@
             </button>
           </div>
           <div class="composer-right">
-            <span class="queue-pill" id="queuePill" hidden>已排队 <b id="queueCount">0</b></span>
             <button class="icon-btn" id="attachBtn" title="添加图片或文件">
               <svg><use href="#i-paperclip"/></svg>
             </button>

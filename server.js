@@ -8,7 +8,7 @@ import { execFile, execFileSync, spawn } from "node:child_process";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PiBridge, buildEnv } from "./lib/pi-bridge.js";
-import { listSessions, isSessionFile, sessionsDir, sessionRoot, messageText, visibleSessionTitle } from "./lib/sessions.js";
+import { listSessionPage, isSessionFile, sessionsDir, sessionRoot, messageText, visibleSessionTitle } from "./lib/sessions.js";
 import { exportSessionFile, resolveSessionFile, searchWorkspaceSessions } from "./lib/history.js";
 import {
   RETRY_WARNING,
@@ -32,6 +32,7 @@ import { serveStatic } from "./lib/static.js";
 import {
   FileAccessError,
   classifyFile,
+  cleanupUnreferencedUploads,
   fileHeaders,
   imageMediaType,
   isTrustedOrigin,
@@ -154,7 +155,13 @@ const sessionRuntime = new Map();
 /** 自动标题子进程，退出时要一并回收。 */
 const titleJobs = new Set();
 let piVersion = null;
-let sessionCache = { at: 0, list: [] };
+let sessionCache = { at: 0, page: null, signature: "" };
+// Sessions the page asked to keep visible even when they are older than the
+// sidebar page size (the current / last opened one). Bounded on purpose.
+const sessionExtras = new Set();
+const MAX_SESSION_EXTRAS = 5;
+const SESSION_PAGE_SIZE = 80;
+const SESSION_PAGE_MAX = 1000;
 let shuttingDown = false;
 
 const ALLOWED_COMMANDS = new Set([
@@ -226,19 +233,80 @@ function writePinned(map) {
   }
 }
 
-function getSessions() {
-  if (!workspace) return [];
+function rememberSessionExtras(files) {
+  for (const file of files || []) {
+    if (typeof file !== "string" || !file.endsWith(".jsonl")) continue;
+    let target;
+    try {
+      target = resolve(file);
+    } catch {
+      continue;
+    }
+    sessionExtras.delete(target);
+    sessionExtras.add(target);
+  }
+  while (sessionExtras.size > MAX_SESSION_EXTRAS) {
+    sessionExtras.delete(sessionExtras.values().next().value);
+  }
+}
+
+let uploadCleanupTimer = 0;
+
+function scheduleUploadCleanup(reason) {
+  if (uploadCleanupTimer) return;
+  uploadCleanupTimer = setTimeout(() => {
+    uploadCleanupTimer = 0;
+    runUploadCleanup(reason);
+  }, 1500);
+  uploadCleanupTimer.unref?.();
+}
+
+function runUploadCleanup(reason) {
+  try {
+    const result = cleanupUnreferencedUploads(PROJECT_ROOT, { sessionRoots: [sessionRoot()] });
+    if (result.deleted.length) {
+      log("uploads cleanup (" + reason + "): removed " + result.deleted.length + " file(s), " + result.freedBytes + " bytes");
+    } else if (result.aborted) {
+      log("uploads cleanup (" + reason + ") skipped: " + result.aborted);
+    }
+    return result;
+  } catch (error) {
+    log("uploads cleanup (" + reason + ") failed:", error.message);
+    return { checked: 0, deleted: [], freedBytes: 0, aborted: "error" };
+  }
+}
+
+function sessionPageLimit(raw) {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return SESSION_PAGE_SIZE;
+  return Math.min(SESSION_PAGE_MAX, Math.max(SESSION_PAGE_SIZE, Math.floor(value)));
+}
+
+function sessionPageFromUrl(url) {
+  const include = url ? url.searchParams.getAll("include") : [];
+  const limit = sessionPageLimit(url ? url.searchParams.get("limit") : null);
+  return getSessions({ limit, include });
+}
+
+function getSessions({ limit = SESSION_PAGE_SIZE, include = [] } = {}) {
+  if (!workspace) return { sessions: [], total: 0, hasMore: false, limit };
+  rememberSessionExtras(include);
   const now = Date.now();
-  if (now - sessionCache.at < 2500) return sessionCache.list;
+  const signature = limit + "|" + Array.from(sessionExtras).sort().join("\n");
+  if (sessionCache.page && now - sessionCache.at < 2500 && sessionCache.signature === signature) {
+    return sessionCache.page;
+  }
   const archive = readArchive();
   const pinned = readPinned();
-  const list = listSessions(workspace).map((session) => ({
+  const page = listSessionPage(workspace, { limit, include: [...sessionExtras] });
+  page.limit = limit;
+  page.sessions = page.sessions.map((session) => ({
     ...session,
     archived: Boolean(archive[session.file]),
     pinned: Boolean(pinned[session.file]),
   }));
-  sessionCache = { at: now, list };
-  return list;
+  sessionCache = { at: now, page, signature };
+  return page;
 }
 
 function json(res, status, payload) {
@@ -546,7 +614,7 @@ async function snapshot(bridge) {
     // 只给前端 entryId + 纯文本，不带图片 / base64。
     forkMessages: (forks.data?.messages || []).map((item) => ({ entryId: item.entryId, text: item.text })),
     pendingUi: [...bridge.pendingUi.values()],
-    sessions: getSessions(),
+    ...getSessions(),
   };
 }
 
@@ -1175,12 +1243,12 @@ async function handleApi(req, res, url) {
       sessionRoot: sessionRoot(),
       // 未选择时不调用 pi --version，避免起任何 pi 子进程。
       piVersion: workspace ? piVersionString() : null,
-      sessions: getSessions(),
+      ...sessionPageFromUrl(url),
     });
   }
 
   if (req.method === "GET" && path === "/api/sessions") {
-    return json(res, 200, { sessions: getSessions() });
+    return json(res, 200, sessionPageFromUrl(url));
   }
 
   if (req.method === "GET" && path === "/api/session/export") {
@@ -1273,6 +1341,17 @@ async function handleApi(req, res, url) {
 
   const body = await readBody(req);
 
+  if (path === "/api/sessions") {
+    const include = Array.isArray(body && body.include) ? body.include : [];
+    return json(res, 200, getSessions({ limit: sessionPageLimit(body && body.limit), include }));
+  }
+
+  if (path === "/api/uploads/cleanup") {
+    if (!isTrustedOrigin(req)) return json(res, 403, { error: "untrusted origin", code: "origin" });
+    const result = runUploadCleanup("manual");
+    return json(res, 200, { ...result, ok: !result.aborted });
+  }
+
   if (path === "/api/sessions/search") {
     return handleSessionSearch(req, res, body);
   }
@@ -1305,6 +1384,8 @@ async function handleApi(req, res, url) {
     workspace = checked.path;
     startupError = "";
     sessionCache.at = 0;
+    // 旧工作区的“保底保留”会话不属于新目录，清掉。
+    sessionExtras.clear();
     log("workspace switched", workspace, save.ok ? "(saved)" : "(not saved)");
     // 明确反馈「工作区已切换，但保存失败」，且不记录配置正文。
     if (!save.ok) log("ERROR: 工作区设置保存失败：", save.error);
@@ -1314,7 +1395,7 @@ async function handleApi(req, res, url) {
       saved: save.ok,
       saveError: save.ok ? null : save.error,
       sessionsDir: sessionsDir(workspace),
-      sessions: getSessions(),
+      ...sessionPageFromUrl(url),
       piVersion: piVersionString(),
     });
   }
@@ -1414,6 +1495,8 @@ async function handleApi(req, res, url) {
     }
     sessionCache.at = 0;
     log("deleted session", target);
+    // 删掉的会话可能带着附件引用，稍后清一次没人引用的上传文件。
+    scheduleUploadCleanup("session delete");
     return json(res, 200, { deleted: true });
   }
 

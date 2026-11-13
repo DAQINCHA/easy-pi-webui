@@ -7,13 +7,14 @@ import {
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { searchWorkspaceSessions } from "../lib/history.js";
-import { listSessions, sessionsDir, visibleSessionTitle } from "../lib/sessions.js";
+import { listSessionPage, listSessions, sessionsDir, visibleSessionTitle } from "../lib/sessions.js";
 import { ALTERNATE_SUFFIX, branchTitle } from "../lib/tree-nav.js";
 import { startServer } from "./helpers/harness.mjs";
 
@@ -297,6 +298,41 @@ describe("session sidebar title source", () => {
     assert.equal(visibleSessionTitle(empty), "");
   });
 
+  it("keeps a requested session outside the newest page and reports hasMore", async () => {
+    const dir = sessionsDir(workspace);
+    const base = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    const bulk = [];
+    for (let i = 0; i < 85; i += 1) {
+      const file = join(dir, "bulk-" + String(i).padStart(3, "0") + ".jsonl");
+      writeSession(file, [header("bulk-" + i), message("b" + i, "", "user", "批量会话 " + i)]);
+      const stamp = new Date(base + i * 1000);
+      utimesSync(file, stamp, stamp);
+      bulk.push(file);
+    }
+
+    const page = listSessionPage(workspace, { limit: 80 });
+    assert.equal(page.sessions.length, 80);
+    assert.equal(page.hasMore, true);
+    assert.ok(page.total > 80);
+    assert.equal(page.sessions.some((item) => item.file === bulk[0]), false, "oldest session is off the page");
+
+    // 上次打开的会话掉出 80 条之外时，必须还能被明确带回来。
+    const withInclude = listSessionPage(workspace, { limit: 80, include: [bulk[0]] });
+    assert.equal(withInclude.total, page.total);
+    assert.equal(withInclude.hasMore, true);
+    assert.equal(withInclude.sessions.length, 81);
+    assert.ok(withInclude.sessions.some((item) => item.file === bulk[0]));
+    assert.equal(withInclude.sessions.at(-1).file, bulk[0], "included old session keeps its mtime order");
+
+    const full = listSessionPage(workspace, { limit: 200 });
+    assert.equal(full.hasMore, false);
+    assert.ok(full.sessions.some((item) => item.file === bulk[0]));
+
+    // 搜索不受侧栏分页影响：80 条以外的会话也要搜得到。
+    const found = await searchWorkspaceSessions(workspace, "批量会话 0");
+    assert.ok(found.results.some((item) => item.file === bulk[0]));
+  });
+
   it("uses the same persisted name for sidebar list and search labels", async () => {
     const file = join(sessionsDir(workspace), "search-name.jsonl");
     writeSession(file, deepSession({ name: "可搜索的自动标题" }));
@@ -368,6 +404,49 @@ describe("session sidebar title source", () => {
       assert.equal(after.sessions.find((item) => item.file === file).name, "运行中的自动标题");
     } finally {
       watcher?.close();
+      if (previousSessionDir === undefined) delete process.env.PI_SESSION_DIR;
+      else process.env.PI_SESSION_DIR = previousSessionDir;
+      await server.stop();
+    }
+  });
+
+  it("bootstrap and paging keep the last-opened session that is older than the page", async () => {
+    const server = await startServer();
+    const previousSessionDir = process.env.PI_SESSION_DIR;
+    try {
+      process.env.PI_SESSION_DIR = server.envHome.sessions;
+      const folder = sessionsDir(realpathSync(server.workspace));
+      mkdirSync(folder, { recursive: true });
+
+      const old = join(folder, "oldest-opened.jsonl");
+      writeSession(old, [header("oldest"), message("o0", "", "user", "最早打开过的会话")]);
+      const ancient = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+      utimesSync(old, ancient, ancient);
+
+      for (let i = 0; i < 85; i += 1) {
+        const file = join(folder, "newer-" + String(i).padStart(3, "0") + ".jsonl");
+        writeSession(file, [header("newer-" + i), message("n" + i, "", "user", "更新的会话 " + i)]);
+      }
+
+      const page = await fetch(server.base + "/api/sessions").then((res) => res.json());
+      assert.equal(page.sessions.length, 80);
+      assert.equal(page.hasMore, true);
+      assert.equal(page.sessions.some((item) => item.file === old), false);
+
+      const boot = await fetch(
+        server.base + "/api/bootstrap?include=" + encodeURIComponent(old),
+      ).then((res) => res.json());
+      assert.ok(boot.sessions.some((item) => item.file === old), "bootstrap keeps the last session");
+      assert.equal(boot.hasMore, true);
+
+      const bigger = await fetch(server.base + "/api/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit: 160 }),
+      }).then((res) => res.json());
+      assert.ok(bigger.sessions.some((item) => item.file === old));
+      assert.equal(bigger.hasMore, false);
+    } finally {
       if (previousSessionDir === undefined) delete process.env.PI_SESSION_DIR;
       else process.env.PI_SESSION_DIR = previousSessionDir;
       await server.stop();
