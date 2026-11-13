@@ -506,6 +506,16 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   position: relative;
   transition: background .15s var(--ease);
 }
+/* 行悬停时：标题、时间戳、右侧图标、旋转器全部跟进悬停前景色。
+   放在选中前景规则之后，确保盖过 .active 的显式子色。 */
+.session-wrap:hover .session-item,
+.session-wrap:hover .session-item .t,
+.session-wrap:hover .session-item .m,
+.session-wrap:hover .session-action,
+.session-wrap:hover .session-action.pin.on,
+.session-wrap:hover .session-spin {
+  color: var(--accent-fg);
+}
 .session-item:hover { background: var(--bg-hover); }
 .session-item.active { background: var(--bg-selected); color: var(--text-selected); }
 .session-item.active::before { display: none; }
@@ -1341,6 +1351,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   transition: background .16s var(--ease), border-color .16s var(--ease), color .16s var(--ease);
 }
 .proc-head:hover { background: var(--bg-hover); border-color: var(--ink); color: var(--accent-fg); }
+.proc-head:hover .proc-state,
+.proc-head:hover .chev,
+.proc-head:hover .proc-ico { color: var(--accent-fg); }
 .proc-ico { flex: none; display: grid; place-items: center; width: 14px; height: 14px; color: var(--text-4); }
 .proc-ico svg { width: 14px; height: 14px; }
 .proc-ico.ok { color: var(--green); }
@@ -1450,6 +1463,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   font-size: 13px;
 }
 .turn-file:hover { background: var(--bg-hover); color: var(--accent-fg); }
+.turn-file:hover .turn-file-name,
+.turn-file:hover .turn-file-dir { color: var(--accent-fg); }
 .turn-file-btn {
   display: flex; align-items: baseline; gap: 8px;
   width: 100%;
@@ -2484,7 +2499,7 @@ html[data-skin="paper"][data-theme="dark"] {
   --bg-code: #241d16;
   --bg-inline-code: #ede4d61f;
   --code-head: #ede4d614;
-  --brand-tile: #2e241a;
+  --brand-tile: #e6d9c3;
 
   /* 悬停 = 暖沙反相底 + 深字，与浅色模式的赪红悬停同一份组件语义 */
   --bg-hover: #e0d2b8;
