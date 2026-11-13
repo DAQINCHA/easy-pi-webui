@@ -745,6 +745,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .icon-btn.on { background: var(--accent); color: #111111; }
 .icon-btn.on:hover { background: var(--accent); color: #111111; }
 .icon-btn svg { width: 17px; height: 17px; }
+#themeBtn svg { width: 20px; height: 20px; }
 
 /* 通知铃：静止时透明底、无额外框；开启只用实心铃，关闭为斜杠空心，激活不要黄底。
    悬停与其他图标按钮一致（柠黄底+黑前景），焦点走全站 :focus-visible，不另造。 */
@@ -766,11 +767,6 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   background: var(--bg-hover);
   color: #111111;
 }
-
-.theme-mode-dark, .theme-mode-light, .theme-mode-system { display: none; }
-html[data-mode="dark"] .theme-mode-dark,
-html[data-mode="light"] .theme-mode-light,
-html[data-mode="system"] .theme-mode-system { display: block; }
 
 /* ------------------------------ main ------------------------------ */
 

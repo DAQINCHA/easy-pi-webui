@@ -33,14 +33,14 @@ function loadHelpers() {
   const context = vm.createContext({});
   vm.runInContext(
     JS.slice(start, end) +
-      "\nglobalThis.THEME_CYCLE = THEME_CYCLE; globalThis.THEME_LABELS = THEME_LABELS; globalThis.themePreference = themePreference; globalThis.nextTheme = nextTheme; globalThis.themeButtonCopy = themeButtonCopy;",
+      "\nglobalThis.THEME_CYCLE = THEME_CYCLE; globalThis.THEME_LABELS = THEME_LABELS; globalThis.themePreference = themePreference; globalThis.nextTheme = nextTheme;",
     context,
   );
   return context;
 }
 
-describe("theme button cycles persisted preference", () => {
-  it("cycles light → dark → system → light, not the resolved appearance", () => {
+describe("appearance menu replaces the theme cycle button", () => {
+  it("keeps the light/dark/system preference helpers intact", () => {
     const ctx = loadHelpers();
     assert.deepEqual(Array.from(ctx.THEME_CYCLE), ["light", "dark", "system"]);
     assert.equal(ctx.nextTheme("light"), "dark");
@@ -50,46 +50,56 @@ describe("theme button cycles persisted preference", () => {
     assert.equal(ctx.themePreference("system"), "system");
     assert.equal(ctx.themePreference("light"), "light");
     assert.equal(ctx.themePreference("dark"), "dark");
-    const apply = functionSource("applyTheme");
-    assert.match(apply, /dataset\.mode = next/);
-    assert.match(apply, /dataset\.theme = resolved/);
-    assert.match(apply, /localStorage\.setItem\("piwebui.theme", next\)/);
-    assert.match(apply, /resolved === "dark" \? "#000000" : "#ffffff"/);
-    assert.match(functionSource("cycleTheme"), /nextTheme\(document\.documentElement\.dataset\.mode\)/);
-    assert.doesNotMatch(functionSource("cycleTheme"), /dataset\.theme|resolvedTheme/);
   });
 
-  it("labels the current preference and the next click, and drops menu ARIA", () => {
-    const ctx = loadHelpers();
-    assert.equal(ctx.themeButtonCopy("light"), "外观：浅色，点击切换为深色");
-    assert.equal(ctx.themeButtonCopy("dark"), "外观：深色，点击切换为跟随系统");
-    assert.equal(ctx.themeButtonCopy("system"), "外观：跟随系统，点击切换为浅色");
-    const apply = functionSource("applyTheme");
-    assert.match(apply, /themeButtonCopy\(next\)/);
-    assert.match(apply, /removeAttribute\("aria-haspopup"\)/);
-    assert.match(apply, /removeAttribute\("aria-expanded"\)/);
-    assert.match(JS, /el\.themeBtn\.addEventListener\("click", cycleTheme\)/);
-    assert.doesNotMatch(JS, /openThemeMenu/);
+  it("opens a menu on click instead of cycling, with shirt icon and ARIA", () => {
+    assert.doesNotMatch(JS, /function cycleTheme/);
+    assert.match(JS, /function openAppearanceMenu\(/);
+    assert.match(JS, /el\.themeBtn\.addEventListener\("click", \(\) => openAppearanceMenu\(el\.themeBtn\)\)/);
+    const menu = functionSource("openAppearanceMenu");
+    assert.match(menu, /labelOnly: true, label: "明暗"/);
+    assert.match(menu, /labelOnly: true, label: "皮肤"/);
+    assert.match(menu, /applyTheme\("light"\)/);
+    assert.match(menu, /applyTheme\("dark"\)/);
+    assert.match(menu, /applyTheme\("system"\)/);
+    assert.match(menu, /align: "right"/);
     const btn = HTML.match(/<button[^>]*id="themeBtn"[^>]*>[\s\S]*?<\/button>/);
     assert.ok(btn);
     assert.match(btn[0], /type="button"/);
-    assert.doesNotMatch(btn[0], /aria-haspopup|aria-expanded/);
-    assert.match(btn[0], /theme-mode-light[\s\S]*#i-sun/);
-    assert.match(btn[0], /theme-mode-dark[\s\S]*#i-moon/);
-    assert.match(btn[0], /theme-mode-system[\s\S]*#i-monitor/);
-    assert.match(CSS, /html\[data-mode="light"\] \.theme-mode-light/);
-    assert.match(CSS, /html\[data-mode="dark"\] \.theme-mode-dark/);
-    assert.match(CSS, /html\[data-mode="system"\] \.theme-mode-system/);
+    assert.match(btn[0], /aria-haspopup="menu"/);
+    assert.match(btn[0], /#i-shirt/);
+    assert.match(HTML, /<symbol id="i-shirt"/);
+    assert.doesNotMatch(btn[0], /i-sun|i-moon|i-monitor/);
+  });
+
+  it("applyTheme persists the preference and keeps the mode/theme attributes", () => {
+    const apply = functionSource("applyTheme");
+    assert.match(apply, /dataset\.mode = next/);
+    assert.match(apply, /dataset\.theme = resolved/);
+    assert.match(apply, /localStorage\.setItem\("piwebui\.theme", next\)/);
+    assert.match(apply, /resolved === "dark" \? "#000000" : "#ffffff"/);
+  });
+
+  it("skins live in a registry, persist to piwebui.skin and set data-skin", () => {
+    assert.match(JS, /const SKINS = \[/);
+    const apply = functionSource("applySkin");
+    assert.match(apply, /dataset\.skin = skin/);
+    assert.match(apply, /localStorage\.setItem\("piwebui\.skin", skin\)/);
+    assert.match(functionSource("currentSkin"), /piwebui\.skin/);
+    const boot = functionSource("boot");
+    assert.match(boot, /applySkin\(localStorage\.getItem\("piwebui\.skin"\)/);
+    assert.doesNotMatch(CSS, /theme-mode-dark|theme-mode-light|theme-mode-system/);
   });
 
   it("keeps the first-load default and the system-preference listener", () => {
-    const boot = functionSource("boot");
     assert.match(JS, /localStorage\.getItem\("piwebui\.theme"\) \|\| "system"/);
+    const boot = functionSource("boot");
     assert.match(boot, /applyTheme\(theme === "light" \|\| theme === "system" \? theme : "dark"\)/);
     assert.match(boot, /dataset\.mode === "system"\) applyTheme\("system"\)/);
     const htmlBoot = HTML.slice(HTML.indexOf("<script>"), HTML.indexOf("</script>"));
     assert.match(htmlBoot, /localStorage\.getItem\("piwebui\.theme"\) \|\| "system"/);
     assert.match(htmlBoot, /dataset\.mode = mode/);
+    assert.match(htmlBoot, /dataset\.skin = localStorage\.getItem\("piwebui\.skin"\) \|\| "classic"/);
     assert.match(htmlBoot, /prefers-color-scheme: dark/);
   });
 });

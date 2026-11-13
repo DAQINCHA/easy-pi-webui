@@ -4955,23 +4955,14 @@ function nextTheme(mode) {
   return THEME_CYCLE[(THEME_CYCLE.indexOf(current) + 1) % THEME_CYCLE.length];
 }
 
-function themeButtonCopy(mode) {
-  const current = themePreference(mode);
-  return "外观：" + THEME_LABELS[current] + "，点击切换为" + THEME_LABELS[nextTheme(current)];
-}
-
 function applyTheme(mode) {
   const next = themePreference(mode);
   const resolved = resolvedTheme(next);
   document.documentElement.dataset.theme = resolved;
   document.documentElement.dataset.mode = next;
-  const copy = themeButtonCopy(next);
   if (el.themeBtn) {
-    el.themeBtn.title = copy;
-    el.themeBtn.setAttribute("aria-label", copy);
-    el.themeBtn.removeAttribute("aria-haspopup");
-    el.themeBtn.removeAttribute("aria-expanded");
-    el.themeBtn.removeAttribute("aria-controls");
+    el.themeBtn.title = "外观 · " + THEME_LABELS[next];
+    el.themeBtn.setAttribute("aria-label", "打开外观菜单，选择明暗和皮肤");
   }
   try {
     localStorage.setItem("piwebui.theme", next);
@@ -4982,8 +4973,42 @@ function applyTheme(mode) {
   if (meta) meta.setAttribute("content", resolved === "dark" ? "#000000" : "#ffffff");
 }
 
-function cycleTheme() {
-  applyTheme(nextTheme(document.documentElement.dataset.mode));
+const SKINS = [{ id: "classic", label: "经典柠黄" }];
+
+function currentSkin() {
+  try {
+    const saved = localStorage.getItem("piwebui.skin");
+    return SKINS.some((skin) => skin.id === saved) ? saved : SKINS[0].id;
+  } catch {
+    return SKINS[0].id;
+  }
+}
+
+function applySkin(id) {
+  const skin = SKINS.some((item) => item.id === id) ? id : SKINS[0].id;
+  document.documentElement.dataset.skin = skin;
+  try {
+    localStorage.setItem("piwebui.skin", skin);
+  } catch {
+    /* ignore */
+  }
+}
+
+function openAppearanceMenu(anchor) {
+  const mode = themePreference(document.documentElement.dataset.mode);
+  openMenu(anchor, [
+    { labelOnly: true, label: "明暗" },
+    { icon: "sun", label: THEME_LABELS.light, active: mode === "light", onClick: () => applyTheme("light") },
+    { icon: "moon", label: THEME_LABELS.dark, active: mode === "dark", onClick: () => applyTheme("dark") },
+    { icon: "monitor", label: THEME_LABELS.system, active: mode === "system", onClick: () => applyTheme("system") },
+    { sep: true },
+    { labelOnly: true, label: "皮肤" },
+    ...SKINS.map((skin) => ({
+      label: skin.label,
+      active: currentSkin() === skin.id,
+      onClick: () => applySkin(skin.id),
+    })),
+  ], { align: "right" });
 }
 
 function sidebarVisible() {
@@ -5189,7 +5214,7 @@ function bindEvents() {
     syncNavToggle();
   });
 
-  el.themeBtn.addEventListener("click", cycleTheme);
+  el.themeBtn.addEventListener("click", () => openAppearanceMenu(el.themeBtn));
   el.notifyBtn.addEventListener("click", () => {
     toggleNotify().finally(updateNotifyBtn);
   });
@@ -5547,6 +5572,11 @@ async function boot() {
     /* ignore */
   }
   applyTheme(theme === "light" || theme === "system" ? theme : "dark");
+  try {
+    applySkin(localStorage.getItem("piwebui.skin") || SKINS[0].id);
+  } catch {
+    /* ignore */
+  }
   connectSessionEvents();
   systemTheme.addEventListener("change", () => {
     if (document.documentElement.dataset.mode === "system") applyTheme("system");
