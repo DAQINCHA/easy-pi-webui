@@ -2321,6 +2321,14 @@ function startLiveRate() {
   startRateTimer();
 }
 
+// 切回一个还在跑的会话时，message_start 早就过去了，这里补一个速率跟踪，
+// 让后续流入的增量还能算出速度。本轮累计从切回来时起算。
+function ensureLiveRate() {
+  if (!state.streaming || state.liveRate || state.replaying) return;
+  if (!state.turnStartedAt) state.turnStartedAt = Date.now();
+  startLiveRate();
+}
+
 function accumulateLiveRate(update, usage) {
   if (!state.liveRate || !update || state.replaying) return;
   const now = Date.now();
@@ -2493,6 +2501,8 @@ function applySnapshot(snapshot, seq = nextSessionsSeq()) {
   state.streaming = Boolean(snapshot.state && snapshot.state.isStreaming);
   state.compacting = Boolean(snapshot.state && snapshot.state.isCompacting);
   if (switched) {
+    // 上一个会话的采样不能带到新会话。
+    stopLiveRate();
     state.turnRate = null;
     state.turnStartedAt = 0;
     state.turnTokens = 0;
@@ -2501,6 +2511,8 @@ function applySnapshot(snapshot, seq = nextSessionsSeq()) {
   if (!state.streaming) {
     state.live = null;
     stopLiveRate();
+  } else {
+    ensureLiveRate();
   }
   // 刷新快照时不要抹掉正在显示的服务端队列；只有切会话或已经停下来才清空。
   if (switched || !state.streaming) clearQueued();
@@ -2604,6 +2616,8 @@ function connectStream() {
     dispatchTask({ type: "__connection", status: "open" });
     if (helloed) resync();
     helloed = true;
+    // 回放结束、回到实时事件流：如果会话还在跑，补上速率跟踪。
+    ensureLiveRate();
     syncConnectionHint("已连接");
     updateWorking();
   });
