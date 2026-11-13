@@ -98,6 +98,15 @@ const state = {
   streaming: false,
   compacting: false,
   live: null,
+  // 流式每秒 token 速率：估算样本 + 结束时用真实 usage 校正（方案 C）。
+  liveRate: null,
+  rateTimer: 0,
+  // 本轮结束后保留的最终速率，跟着「已完成」一起显示，下一轮开始时清掉。
+  turnRate: null,
+  // 本轮累计：开始时刻 + 各段助手回复的输出 token（真实优先，没有就用估算），用来算整轮平均速度。
+  turnStartedAt: 0,
+  turnTokens: 0,
+  turnEstTokens: 0,
   // 每条还没写进历史的发出消息各占一个乐观气泡，不能共用一个槽位。
   optimistic: [],
   // 当前轮次（turn）的 DOM 节点，重绘时按它定位插入点。
@@ -964,6 +973,11 @@ async function resetToWorkspace(data) {
   }
   state.attachments = [];
   state.live = null;
+  stopLiveRate();
+  state.turnRate = null;
+  state.turnStartedAt = 0;
+  state.turnTokens = 0;
+  state.turnEstTokens = 0;
   clearOptimistic();
   state.toolResults.clear();
   state.toolLive.clear();
@@ -2040,6 +2054,13 @@ function renderTurnOutcome() {
   node.setAttribute("aria-live", view.settledFresh ? view.live : "off");
   node.setAttribute("aria-atomic", "true");
   node.textContent = view.summary;
+  if (state.turnRate && state.turnRate.value >= 1) {
+    const rate = document.createElement("span");
+    rate.className = "turn-rate";
+    rate.setAttribute("aria-hidden", "true");
+    rate.textContent = Math.round(state.turnRate.value) + " tok/s";
+    node.appendChild(rate);
+  }
   el.messages.appendChild(node);
 }
 
@@ -2090,11 +2111,9 @@ function renderTurnSummary() {
     card.hidden = !state.turnSummaryOpen;
     pill.classList.toggle("open", state.turnSummaryOpen);
     pill.setAttribute("aria-expanded", String(state.turnSummaryOpen));
-    // 胶囊贴在对话底部，展开后清单往下长，不滚就只看到被视口切掉的一截。
-    // 用 nearest：只在真的超出视口时滚，滚到刚好露出清单底部（平滑滚动由 .thread 的 scroll-behavior 管）。
-    if (state.turnSummaryOpen) {
-      requestAnimationFrame(() => card.scrollIntoView({ block: "nearest" }));
-    }
+    // 胶囊贴在对话底部，展开后清单往下长；不滚到底就会被下面的输入框切掉一截。
+    // 这里直接滚到最底（胶囊永远是最后一项），露出整张清单。
+    if (state.turnSummaryOpen) scrollBottom(true);
   });
 
   node.appendChild(pill);
@@ -2271,6 +2290,110 @@ function dropStream() {
   state.live = null;
 }
 
+/* 每秒 token：生成中用增量估算，回答结束时用真实 usage 校正。 */
+const RATE_WINDOW_MS = 2000;
+const RATE_TICK_MS = 400;
+
+// 粗略估算一段文字大概占多少 token：中日韩字符按 1 字≈1 token，其余按 4 字符≈1 token。
+function estimateTokens(text) {
+  if (!text) return 0;
+  let cjk = 0;
+  let other = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0);
+    if (
+      (code >= 0x2e80 && code <= 0x9fff) ||
+      (code >= 0xac00 && code <= 0xd7af) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xff00 && code <= 0xffef)
+    ) {
+      cjk += 1;
+    } else {
+      other += 1;
+    }
+  }
+  return cjk + Math.ceil(other / 4);
+}
+
+function startLiveRate() {
+  if (state.replaying) return;
+  state.liveRate = { startedAt: Date.now(), samples: [], real: 0, realSamples: [], final: null };
+  startRateTimer();
+}
+
+function accumulateLiveRate(update, usage) {
+  if (!state.liveRate || !update || state.replaying) return;
+  const now = Date.now();
+  const rate = state.liveRate;
+  const cutoff = now - RATE_WINDOW_MS;
+  // 估算样本：只要在吐字就算。
+  if (update.type === "text_delta" || update.type === "thinking_delta" || update.type === "toolcall_delta") {
+    const tokens = estimateTokens(update.delta || "");
+    if (tokens) {
+      rate.samples.push({ t: now, tokens });
+      state.turnEstTokens += tokens;
+    }
+  }
+  while (rate.samples.length && rate.samples[0].t < cutoff) rate.samples.shift();
+  // 真实样本：有些模型会中途报累计用量，报得比上次多就记一笔，用来校正估算。
+  const reported = usage ? Number(usage.output) : 0;
+  if (reported > rate.real) {
+    rate.realSamples.push({ t: now, tokens: reported - rate.real });
+    rate.real = reported;
+  }
+  while (rate.realSamples.length && rate.realSamples[0].t < cutoff) rate.realSamples.shift();
+}
+
+function finishLiveRate(message) {
+  if (!message || state.replaying) return;
+  const output = message.usage ? Number(message.usage.output) : 0;
+  if (output > 0) state.turnTokens += output;
+  const rate = state.liveRate;
+  if (!rate) return;
+  const seconds = (Date.now() - rate.startedAt) / 1000;
+  if (output > 0 && seconds > 0) rate.final = { tokens: output, rate: output / seconds };
+}
+
+// 返回 { value, estimated } 或 null（没有任何可显示的速度）。
+function liveTokenRate() {
+  const rate = state.liveRate;
+  if (!rate) return null;
+  if (rate.final) return { value: rate.final.rate, estimated: false };
+  const now = Date.now();
+  const cutoff = now - RATE_WINDOW_MS;
+  const windowMs = Math.max(Math.min(RATE_WINDOW_MS, now - rate.startedAt), 1);
+  const seconds = windowMs / 1000;
+  const sum = (list) => {
+    let tokens = 0;
+    for (const sample of list) if (sample.t >= cutoff) tokens += sample.tokens;
+    return tokens;
+  };
+  const real = sum(rate.realSamples);
+  if (real) return { value: real / seconds, estimated: false };
+  const estimated = sum(rate.samples);
+  if (!estimated) return null;
+  return { value: estimated / seconds, estimated: true };
+}
+
+function startRateTimer() {
+  if (state.rateTimer) return;
+  state.rateTimer = setInterval(() => {
+    if (!state.streaming) return;
+    updateWorking();
+  }, RATE_TICK_MS);
+}
+
+function stopRateTimer() {
+  if (!state.rateTimer) return;
+  clearInterval(state.rateTimer);
+  state.rateTimer = 0;
+}
+
+function stopLiveRate() {
+  stopRateTimer();
+  state.liveRate = null;
+}
+
 // 工作提示始终占最后一行：新内容一律插到它前面，而不是追加到它后面。
 // 还在排队、尚未写入历史的乐观气泡也要留在新内容后面；只有新气泡自己追加时才跳过这个锚点。
 function appendToThread(nodes, options = {}) {
@@ -2305,7 +2428,7 @@ function updateWorking() {
     node.className = "working";
     node.setAttribute("role", "status");
     node.innerHTML =
-      '<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="working-label"></span>';
+      '<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="working-label"></span><span class="working-rate" aria-hidden="true" hidden></span>';
     el.messages.appendChild(node);
     scrollBottom();
   }
@@ -2317,6 +2440,17 @@ function updateWorking() {
   const labelNode = node.querySelector(".working-label");
   const label = view.label || state.activity || "正在处理你的请求";
   if (labelNode && labelNode.textContent !== label) labelNode.textContent = label;
+  const rateNode = node.querySelector(".working-rate");
+  if (rateNode) {
+    const rate = state.streaming ? liveTokenRate() : null;
+    if (rate && rate.value >= 1) {
+      rateNode.hidden = false;
+      rateNode.textContent = Math.round(rate.value) + " tok/s";
+    } else {
+      rateNode.hidden = true;
+      rateNode.textContent = "";
+    }
+  }
   if (el.messages.lastElementChild !== node) el.messages.appendChild(node);
 }
 
@@ -2358,7 +2492,16 @@ function applySnapshot(snapshot, seq = nextSessionsSeq()) {
   else if (!stale) state.sessionName = snapshotName;
   state.streaming = Boolean(snapshot.state && snapshot.state.isStreaming);
   state.compacting = Boolean(snapshot.state && snapshot.state.isCompacting);
-  if (!state.streaming) state.live = null;
+  if (switched) {
+    state.turnRate = null;
+    state.turnStartedAt = 0;
+    state.turnTokens = 0;
+    state.turnEstTokens = 0;
+  }
+  if (!state.streaming) {
+    state.live = null;
+    stopLiveRate();
+  }
   // 刷新快照时不要抹掉正在显示的服务端队列；只有切会话或已经停下来才清空。
   if (switched || !state.streaming) clearQueued();
   state.toolResults.clear();
@@ -3046,6 +3189,12 @@ function handleEvent(event) {
     case "agent_start":
       state.streaming = true;
       state.activity = "正在处理你的请求";
+      // 新一轮开始，旧的每秒 token 速率作废，本轮累计重新起算。
+      state.liveRate = null;
+      state.turnRate = null;
+      state.turnStartedAt = Date.now();
+      state.turnTokens = 0;
+      state.turnEstTokens = 0;
       // 每轮重新统计「本轮改了什么」。
       state.turnFiles = new Map();
       state.turnSummary = null;
@@ -3061,14 +3210,17 @@ function handleEvent(event) {
     case "message_start":
       if (event.message && event.message.role === "assistant") {
         state.live = { blocks: [] };
+        startLiveRate();
       }
       break;
 
     case "message_update":
+      accumulateLiveRate(event.assistantMessageEvent, event.usage);
       applyLiveUpdate(event.assistantMessageEvent);
       break;
 
     case "message_end":
+      if (event.message && event.message.role === "assistant") finishLiveRate(event.message);
       finishMessage(event.message);
       break;
 
@@ -3109,6 +3261,11 @@ function handleEvent(event) {
     case "agent_settled": {
       state.streaming = false;
       state.activity = "";
+      // 整轮平均：本轮所有助手回复的输出 token ÷ 本轮从开始到结束的耗时。
+      const turnSeconds = state.turnStartedAt ? (Date.now() - state.turnStartedAt) / 1000 : 0;
+      const turnTokens = state.turnTokens > 0 ? state.turnTokens : state.turnEstTokens;
+      state.turnRate = turnTokens > 0 && turnSeconds > 0 ? { value: turnTokens / turnSeconds } : null;
+      stopLiveRate();
       clearQueued();
       dropStream();
       updateSendState();
@@ -3174,6 +3331,7 @@ function handleEvent(event) {
 
     case "bridge_exit":
       state.streaming = false;
+      stopLiveRate();
       dropStream();
       refreshCurrentTurn();
       updateSendState();
