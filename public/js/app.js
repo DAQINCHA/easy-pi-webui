@@ -1088,7 +1088,7 @@ function openTokenMenu(anchor) {
       { info: ["缓存读取", fmtExact(usage.cached)] },
       { info: ["缓存命中", usage.hitLabel] },
     ],
-    { align: "left", preferUp: true, above: el.composer },
+    { align: "left", preferUp: true },
   );
 }
 
@@ -3973,8 +3973,9 @@ function openMenu(anchor, items, options) {
   let top = rect.bottom + 6;
   const preferUp = opts.preferUp || top + height > window.innerHeight - 8;
   if (preferUp) {
-    const floor = opts.above ? opts.above.getBoundingClientRect().top : rect.top;
-    top = Math.max(8, floor - height - 8);
+    // 贴着触发它的按钮向上弹，不要对齐整个 composer 的顶边，
+    // 否则输入框被顶得比较高时菜单会飘到很远的地方。
+    top = Math.max(8, rect.top - height - 6);
   }
   menu.style.left = left + "px";
   menu.style.top = top + "px";
@@ -3996,7 +3997,7 @@ function openModelMenu(anchor) {
     });
   }
   if (!models.length) items.push({ label: "没有可用模型", labelOnly: true });
-  openMenu(anchor, items, { align: "left", preferUp: true, above: el.composer });
+  openMenu(anchor, items, { align: "left", preferUp: true });
 }
 
 /* ---------- 记住上次选用的模型与思考强度 ---------- */
@@ -4130,7 +4131,7 @@ function openContextMenu(anchor) {
       { sep: true },
       { label: "压缩上下文", icon: "refresh", onClick: () => compactSession() },
     ],
-    { align: "left", preferUp: true, above: el.composer },
+    { align: "left", preferUp: true },
   );
 }
 
@@ -4144,7 +4145,7 @@ function openThinkMenu(anchor) {
       onClick: () => selectThink(level),
     });
   }
-  openMenu(anchor, items, { align: "left", preferUp: true, above: el.composer });
+  openMenu(anchor, items, { align: "left", preferUp: true });
 }
 
 async function selectThink(level) {
