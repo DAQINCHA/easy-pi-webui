@@ -38,7 +38,7 @@ describe("composer gap, workspace picker edge, and app top rule", () => {
 
   it("gives only the workspace-menu open button a hard D edge, with readable hover and focus", () => {
     const btn = rules(".workspace-menu .picker-btn")[0];
-    assert.match(btn, /border:\s*2px solid var\(--ink\)/);
+    assert.match(btn, /border:\s*var\(--border-width\) solid var\(--ink\)/);
     assert.match(btn, /background:\s*var\(--paper\)/);
     assert.match(btn, /color:\s*var\(--text-1\)/);
     assert.doesNotMatch(btn, /box-shadow\s*:/);
@@ -59,19 +59,19 @@ describe("composer gap, workspace picker edge, and app top rule", () => {
     assert.match(disabled, /filter:\s*none/);
     assert.match(disabled, /pointer-events:\s*none/);
     const generic = baseRule(".picker-btn");
-    assert.doesNotMatch(generic, /border:\s*2px solid var\(--ink\)/);
+    assert.doesNotMatch(generic, /border:\s*var\(--border-width\) solid var\(--ink\)/);
     assert.match(baseRule(".picker-btn:disabled"), /background:\s*var\(--bg-elev-3\)/);
     assert.match(baseRule(".picker-btn:hover"), /background:\s*var\(--accent-hover\)/);
   });
 
   it("draws a full-width top rule on the app shell, not only the main topbar", () => {
     const app = baseRule(".app");
-    assert.match(app, /border-top:\s*2px solid var\(--ink\)/);
+    assert.match(app, /border-top:\s*var\(--border-width\) solid var\(--ink\)/);
     assert.match(app, /height:\s*100dvh/);
     const topbar = baseRule(".topbar");
     assert.doesNotMatch(topbar, /border-top:\s*2px/);
-    assert.match(topbar, /border-bottom:\s*2px solid var\(--ink\)/);
+    assert.match(topbar, /border-bottom:\s*var\(--border-width\) solid var\(--ink\)/);
     const mobile = CSS.slice(CSS.indexOf("@media (max-width: 900px)"));
-    assert.match(mobile, /\.sidebar\s*\{[^}]*border-top:\s*2px solid var\(--ink\)/);
+    assert.match(mobile, /\.sidebar\s*\{[^}]*border-top:\s*var\(--border-width\) solid var\(--ink\)/);
   });
 });

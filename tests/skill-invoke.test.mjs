@@ -223,7 +223,7 @@ describe("skill header hover/focus text contrast", () => {
     for (const state of ["hover", "focus-visible"]) {
       const head = lineRule(".skill-head:" + state);
       assert.match(head, /background:\s*var\(--bg-hover\)/);
-      assert.match(head, /color:\s*#111111/);
+      assert.match(head, /color:\s*var\(--accent-fg\)/);
       for (const child of [".skill-label", ".skill-name", ".skill-hint"]) {
         assert.match(lineRule(".skill-head:" + state + " " + child), /color:\s*inherit/);
       }

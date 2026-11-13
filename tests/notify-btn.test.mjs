@@ -138,7 +138,7 @@ describe("notify button on/off state", () => {
     assert.match(hover, /#notifyBtn\.on:hover/);
     assert.doesNotMatch(hover, /:focus-visible/);
     assert.match(hover, /background:\s*var\(--bg-hover\)/);
-    assert.match(hover, /color:\s*#111111/);
+    assert.match(hover, /color:\s*var\(--accent-fg\)/);
     assert.doesNotMatch(hover, /color-mix\(/);
 
     assert.match(lastRule("#notifyBtn .notify-icon-on"), /display:\s*none/);

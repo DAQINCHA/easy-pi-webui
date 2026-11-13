@@ -77,19 +77,19 @@ describe("menu selected contrast tokens", () => {
     assert.match(joined, /\.menu-item:hover \.sub/);
     assert.match(joined, /\.menu-item:hover \.check/);
     assert.match(joined, /\.menu-item:hover \.mi-label/);
-    assert.match(joined, /color:\s*#111111/);
+    assert.match(joined, /color:\s*var\(--accent-fg\)/);
   });
 
   it("keeps selected+hover and selected+focus as yellow with black child text", () => {
     const parent = ruleGroupContains(".menu-item.active:hover", "");
     assert.match(parent.join("\n"), /background:\s*var\(--bg-hover\)/);
-    assert.match(parent.join("\n"), /color:\s*#111111/);
+    assert.match(parent.join("\n"), /color:\s*var\(--accent-fg\)/);
     const kids = ruleGroupContains(".menu-item.active:hover .sub", "");
     const joined = kids.join("\n");
     assert.match(joined, /\.menu-item\.active:hover \.sub/);
     assert.match(joined, /\.menu-item\.active:hover \.check/);
     assert.match(joined, /\.menu-item\.active:focus-visible \.sub/);
-    assert.match(joined, /color:\s*#111111/);
+    assert.match(joined, /color:\s*var\(--accent-fg\)/);
   });
 
   it("does not let hover or selected styles override a disabled item", () => {

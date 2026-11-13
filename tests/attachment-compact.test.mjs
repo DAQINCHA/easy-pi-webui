@@ -309,7 +309,7 @@ describe("attachment hover/focus contrast", () => {
     ]) {
       const rule = ruleFor(selector);
       assert.match(rule, /background:\s*var\(--bg-hover\)/);
-      assert.match(rule, /color:\s*#111111/);
+      assert.match(rule, /color:\s*var\(--accent-fg\)/);
     }
     for (const selector of [
       ".attach-file-toggle:hover .attach-file-hint",
@@ -321,10 +321,14 @@ describe("attachment hover/focus contrast", () => {
     assert.match(ruleFor(".attach-file-hint"), /color:\s*var\(--text-4\)/);
 
     const bgs = [...CSS.matchAll(/--bg-hover:\s*(#[0-9a-fA-F]{6})/g)].map((m) => m[1].toLowerCase());
+    const fgs = [...CSS.matchAll(/--accent-fg:\s*(#[0-9a-fA-F]{6})/g)].map((m) => m[1].toLowerCase());
     assert.ok(bgs.length >= 2, "light and dark both define --bg-hover");
+    assert.ok(fgs.length >= 2, "light and dark both define --accent-fg");
     for (const bg of bgs) {
       assert.equal(bg, "#ffe600");
-      assert.ok(contrast("#111111", bg) >= 7, "dark text on " + bg + " must reach AAA");
+      for (const fg of fgs) {
+        assert.ok(contrast(fg, bg) >= 7, fg + " on " + bg + " must reach AAA");
+      }
     }
   });
 });

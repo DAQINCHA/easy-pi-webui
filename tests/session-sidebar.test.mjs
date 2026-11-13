@@ -108,7 +108,7 @@ describe("sidebar session actions and list scrollbar", () => {
     assert.ok(rest.spec.cls >= 5, "resting selected color should be the high-specificity :has rule, got " + JSON.stringify(rest));
 
     const hover = winningProp(["in-active-wrap"], true, false, "color");
-    assert.equal(hover.color, "#111111");
+    assert.equal(hover.color, "var(--accent-fg)");
     assert.match(hover.background || parseRules().find((r) => r.selector === hover.selector)?.background || "", /var\(--bg-hover\)|#111111|/);
     const hoverBg = winningProp(["in-active-wrap"], true, false, "background");
     assert.match(hoverBg.background, /var\(--bg-hover\)/);
@@ -118,20 +118,20 @@ describe("sidebar session actions and list scrollbar", () => {
     );
 
     const focus = winningProp(["in-active-wrap"], false, true, "color");
-    assert.equal(focus.color, "#111111");
+    assert.equal(focus.color, "var(--accent-fg)");
 
     const unselected = winningProp([], true, false, "color");
-    assert.equal(unselected.color, "#111111");
+    assert.equal(unselected.color, "var(--accent-fg)");
 
     const pinOnSelected = winningProp(["in-active-wrap", "pin", "on"], true, false, "color");
-    assert.equal(pinOnSelected.color, "#111111");
+    assert.equal(pinOnSelected.color, "var(--accent-fg)");
 
     const unselectedBg = winningProp([], true, false, "background");
     assert.match(unselectedBg.background, /var\(--bg-hover\)/);
     const grouped = CSS.match(/\.session-action:hover[^{]*\{([^}]*)\}/);
     assert.ok(grouped, "missing .session-action:hover rule");
     assert.match(grouped[1], /background:\s*var\(--bg-hover\)/);
-    assert.match(grouped[1], /color:\s*#111111/);
+    assert.match(grouped[1], /color:\s*var\(--accent-fg\)/);
     assert.doesNotMatch(grouped[1], /border-color:\s*var\(--ink\)/);
     assert.doesNotMatch(grouped[1], /border:\s*[^;]*var\(--ink\)/);
     const base = CSS.match(/(?:^|\n)\.session-action\s*\{([^}]*)\}/);
@@ -214,11 +214,11 @@ describe("sidebar session actions and list scrollbar", () => {
     const hidden = CSS.match(/\.session-scroll::-webkit-scrollbar-thumb\s*\{[^}]*\}/)[0];
     assert.match(hidden, /background:\s*var\(--session-scroll-thumb\)/);
     assert.match(hidden, /border:\s*3px solid transparent/);
-    assert.match(hidden, /border-radius:\s*0/);
+    assert.match(hidden, /border-radius:\s*var\(--radius\)/);
     assert.match(hidden, /background-clip:\s*content-box/);
     assert.doesNotMatch(hidden, /transition\s*:/);
     // Main-thread global thumb stays styled and visible.
-    assert.match(CSS, /(?:^|\n)::-webkit-scrollbar-thumb \{ background: var\(--scroll-thumb\); border: 3px solid transparent; border-radius: 0;/);
+    assert.match(CSS, /(?:^|\n)::-webkit-scrollbar-thumb \{ background: var\(--scroll-thumb\); border: 3px solid transparent; border-radius: var\(--radius\);/);
   });
 
   it("fades the thumb via a registered color on the scroller, not a fake thumb transition", () => {
