@@ -2564,10 +2564,11 @@ html[data-skin="sea-salt"] {
   --border-width: 1px;
 }
 
-/* 标识与头像用和空状态大图标同一套圆角矩形；小尺寸按比例收小，
+/* 标识、头像、空状态大图标统一同一档圆角；小尺寸按比例收小，
    否则 16px 圆角会把 26/32px 的小方块压成纯圆 */
 html[data-skin="sea-salt"] .brand-mark,
-html[data-skin="sea-salt"] .msg .avatar {
+html[data-skin="sea-salt"] .msg .avatar,
+html[data-skin="sea-salt"] .empty-mark {
   border-radius: calc(var(--radius) / 2);
 }
 html[data-skin="sea-salt"] .sidebar,
@@ -3389,5 +3390,453 @@ html[data-skin="mint"] .suggestions button:hover {
   }
   html[data-skin="mint"] .composer-shell {
     padding: 0 10px calc(10px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ------------------------ 皮肤：极光玻璃 ------------------------
+ * 深海军蓝底 + 青/紫/蓝极光光斑，半透明玻璃面板 + 细发光边；
+ * 气泡、输入框、选中会话用 backdrop-filter，不支持时退回实色。
+ * 浅色为同结构反推：浅天蓝/淡紫光斑 + 白色玻璃。 */
+html[data-skin="aurora"] {
+  --radius: 12px;
+  --radius-lg: 18px;
+  --border-width: 1px;
+}
+
+/* 结构：外壳留缝，侧栏成为悬浮玻璃卡；对话区直接坐在极光底上 */
+html[data-skin="aurora"] .app {
+  padding: 12px;
+  gap: 12px;
+  border-top: 0;
+  background-color: var(--aurora-bg);
+  background-image: var(--aurora-layers);
+  background-attachment: fixed;
+}
+html[data-skin="aurora"] .app.sidebar-hidden { gap: 0; }
+html[data-skin="aurora"] .main,
+html[data-skin="aurora"] .thread,
+html[data-skin="aurora"] .thread-inner { background: transparent; }
+html[data-skin="aurora"] .sidebar {
+  background: var(--aurora-sidebar);
+  border: 1px solid var(--aurora-line);
+  border-radius: var(--radius-lg);
+  box-shadow: inset 0 1px 1px var(--aurora-hi);
+}
+/* 外投影放槽上：.sidebar-slot 的 overflow: hidden 会裁掉侧栏自己的外阴影 */
+html[data-skin="aurora"] .sidebar-slot {
+  border-radius: var(--radius-lg);
+  box-shadow: 0 14px 32px var(--shadow-color);
+}
+html[data-skin="aurora"] .topbar {
+  background: transparent;
+  border-bottom-color: var(--border-soft);
+}
+/* 悬浮侧栏的右边缘比侧栏轨道向右多出外壳内边距，拖动热区跟着补上 */
+html[data-skin="mint"] .sidebar-resizer,
+html[data-skin="aurora"] .sidebar-resizer {
+  left: calc(var(--sidebar-w) + 9px);
+}
+
+/* 标识、头像、大图标：统一同一档圆角，不再时而圆形时而圆角矩形 */
+html[data-skin="aurora"] .brand-mark,
+html[data-skin="aurora"] .msg .avatar,
+html[data-skin="aurora"] .empty-mark {
+  border-radius: 10px;
+  background: var(--aurora-tile);
+  border-color: var(--aurora-line-strong);
+}
+/* 深色下底座是深色玻璃，π 不能再压成黑色；浅色仍用默认的黑色 */
+html[data-skin="aurora"][data-theme="dark"] .brand-mark img,
+html[data-skin="aurora"][data-theme="dark"] .empty-mark img,
+html[data-skin="aurora"][data-theme="dark"] .msg .avatar img {
+  filter: none;
+}
+
+/* 侧栏控件 */
+html[data-skin="aurora"] .new-chat {
+  background: var(--aurora-newchat);
+  color: var(--text-1);
+  border-color: var(--aurora-line-strong);
+  border-radius: 14px;
+}
+html[data-skin="aurora"] .new-chat:hover {
+  background: var(--aurora-newchat-hover);
+  color: var(--text-1);
+}
+html[data-skin="aurora"] .new-chat:active { background: var(--aurora-newchat-hover); }
+html[data-skin="aurora"] .new-chat kbd { color: var(--text-4); }
+
+html[data-skin="aurora"] .search,
+html[data-skin="aurora"] .workspace {
+  background: var(--bg-elev);
+  border-color: var(--aurora-line);
+  border-radius: 12px;
+  color: var(--text-1);
+}
+html[data-skin="aurora"] .search:hover,
+html[data-skin="aurora"] .workspace:hover {
+  background: var(--bg-elev);
+  border-color: var(--aurora-line-strong);
+}
+html[data-skin="aurora"] .session-item { border-radius: 12px; }
+html[data-skin="aurora"] .session-item.active {
+  background: var(--aurora-session);
+  box-shadow: inset 0 0 0 1px var(--aurora-ring);
+  color: var(--text-selected);
+}
+html[data-skin="aurora"] .session-item.active .t { color: var(--text-selected); }
+html[data-skin="aurora"] .session-item.active .m { color: var(--text-selected-muted); }
+html[data-skin="aurora"] .session-action { border-radius: 8px; }
+
+/* 消息：玻璃气泡 + 细边，助手正文不另起卡片 */
+html[data-skin="aurora"] .bubble {
+  background: var(--aurora-bubble);
+  border-radius: 16px;
+  color: var(--text-1);
+}
+html[data-skin="aurora"] .action {
+  background: transparent;
+  border-color: transparent;
+  border-radius: 8px;
+  color: var(--text-2);
+}
+html[data-skin="aurora"] .action:hover {
+  background: var(--bg-hover);
+  color: var(--accent-fg);
+}
+html[data-skin="aurora"] .action:disabled,
+html[data-skin="aurora"] .action:disabled:hover {
+  background: transparent;
+  color: var(--text-disabled);
+  box-shadow: none;
+}
+
+/* 过程、工具、思考、本轮摘要：玻璃小面板 */
+html[data-skin="aurora"] .tool,
+html[data-skin="aurora"] .think,
+html[data-skin="aurora"] .proc-head,
+html[data-skin="aurora"] .turn-pill,
+html[data-skin="aurora"] .turn-card,
+html[data-skin="aurora"] .queue-rail,
+html[data-skin="aurora"] .notice {
+  background: var(--aurora-panel);
+  border-color: var(--aurora-line);
+  border-radius: 14px;
+}
+html[data-skin="aurora"] .tool:hover { border-color: var(--aurora-line-strong); }
+html[data-skin="aurora"] .tool.is-error {
+  border-color: color-mix(in srgb, var(--red) 45%, transparent);
+}
+html[data-skin="aurora"] .proc-head:hover,
+html[data-skin="aurora"] .turn-pill:hover {
+  background: var(--bg-hover);
+  color: var(--accent-fg);
+  border-color: transparent;
+}
+html[data-skin="aurora"] .tool-ico {
+  background: var(--bg-elev-2);
+  border-color: var(--aurora-line);
+  border-radius: 8px;
+}
+/* 展开文件卡：列表不留上下内边距，悬停底色才能铺满整卡 */
+html[data-skin="aurora"] .turn-list { padding: 0; }
+html[data-skin="aurora"] .turn-file { padding: 10px 16px; }
+
+/* 输入区：玻璃卡 + 青色实心发送键 */
+html[data-skin="aurora"] .composer {
+  background: var(--aurora-composer);
+  border-color: var(--aurora-line);
+  border-radius: 18px;
+}
+html[data-skin="aurora"] .composer:focus-within { border-color: var(--aurora-line-strong); }
+html[data-skin="aurora"] .composer.dragover { border-color: var(--accent); }
+html[data-skin="aurora"] .chip {
+  background: var(--bg-elev-2);
+  border-color: var(--aurora-line);
+  border-radius: 999px;
+  color: var(--text-2);
+}
+html[data-skin="aurora"] .chip:hover {
+  background: var(--bg-hover);
+  color: var(--accent-fg);
+  border-color: transparent;
+}
+html[data-skin="aurora"] .send {
+  background: var(--aurora-send);
+  color: var(--aurora-send-ink);
+  border: 0;
+  border-radius: 50%;
+}
+html[data-skin="aurora"] .send:hover { background: var(--aurora-send-hover); }
+html[data-skin="aurora"] .send:active {
+  background: var(--aurora-send-press);
+  box-shadow: none;
+}
+html[data-skin="aurora"] .send[disabled] {
+  background: var(--bg-elev-3);
+  color: var(--text-disabled);
+  box-shadow: none;
+}
+html[data-skin="aurora"] .send.is-stop,
+html[data-skin="aurora"] .send.is-stop:hover {
+  background: var(--red);
+  color: var(--on-danger);
+}
+
+/* 浮层 */
+html[data-skin="aurora"] .menu,
+html[data-skin="aurora"] .modal,
+html[data-skin="aurora"] .toast,
+html[data-skin="aurora"] .rail-tip {
+  background: var(--aurora-panel-strong);
+  border-color: var(--aurora-line);
+  border-radius: 14px;
+}
+html[data-skin="aurora"] .to-bottom {
+  border-color: var(--aurora-line);
+  border-radius: 50%;
+}
+
+/* 玻璃模糊：只在支持 backdrop-filter 时把底色再调透明一点，否则保持上面的实色回退 */
+@supports ((-webkit-backdrop-filter: blur(16px)) or (backdrop-filter: blur(16px))) {
+  html[data-skin="aurora"] .bubble,
+  html[data-skin="aurora"] .composer,
+  html[data-skin="aurora"] .session-item.active,
+  html[data-skin="aurora"] .menu,
+  html[data-skin="aurora"] .modal {
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+  }
+  html[data-skin="aurora"] .bubble { background: var(--aurora-bubble-blur); }
+  html[data-skin="aurora"] .composer { background: var(--aurora-composer-blur); }
+  html[data-skin="aurora"] .session-item.active { background: var(--aurora-session-blur); }
+  html[data-skin="aurora"] .menu,
+  html[data-skin="aurora"] .modal { background: var(--aurora-panel-blur); }
+}
+
+html[data-skin="aurora"][data-theme="light"] {
+  color-scheme: light;
+
+  --aurora-bg: #eef4fb;
+  --aurora-layers:
+    radial-gradient(ellipse 70% 50% at 12% 8%, rgba(40, 200, 190, 0.2) 0%, transparent 55%),
+    radial-gradient(ellipse 55% 60% at 88% 18%, rgba(140, 110, 235, 0.16) 0%, transparent 58%),
+    radial-gradient(ellipse 50% 45% at 70% 88%, rgba(70, 140, 235, 0.14) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 40% at 30% 70%, rgba(40, 190, 175, 0.12) 0%, transparent 55%),
+    linear-gradient(180deg, #f7fbff 0%, #eef4fd 48%, #e9f1fb 100%);
+  --aurora-tile: rgba(60, 200, 210, 0.16);
+  --aurora-line: rgba(60, 115, 160, 0.24);
+  --aurora-line-strong: rgba(60, 150, 175, 0.42);
+  --aurora-ring: rgba(13, 122, 134, 0.45);
+  --aurora-hi: rgba(255, 255, 255, 0.75);
+  --aurora-sidebar:
+    radial-gradient(120% 60% at 18% 0%, rgba(60, 200, 210, 0.12) 0%, transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(233, 243, 255, 0.8) 100%);
+  --aurora-newchat: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(222, 242, 248, 0.92));
+  --aurora-newchat-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(208, 236, 244, 0.95));
+  --aurora-panel: rgba(255, 255, 255, 0.72);
+  --aurora-panel-strong: rgba(255, 255, 255, 0.9);
+  --aurora-panel-blur: rgba(255, 255, 255, 0.62);
+  --aurora-bubble: rgba(255, 255, 255, 0.86);
+  --aurora-bubble-blur: rgba(255, 255, 255, 0.55);
+  --aurora-composer: rgba(255, 255, 255, 0.86);
+  --aurora-composer-blur: rgba(255, 255, 255, 0.6);
+  --aurora-session: rgba(224, 244, 248, 0.9);
+  --aurora-session-blur: rgba(226, 246, 250, 0.55);
+  --aurora-send: #3ec6cf;
+  --aurora-send-hover: #52d3db;
+  --aurora-send-press: #2bb0b8;
+  --aurora-send-ink: #06262b;
+
+  --ink: rgba(60, 115, 160, 0.3);
+  --paper: rgba(255, 255, 255, 0.72);
+
+  --bg-app: #eef4fb;
+  --bg-chat: transparent;
+  --bg-sidebar: rgba(250, 253, 255, 0.72);
+  --bg-elev: rgba(255, 255, 255, 0.72);
+  --bg-elev-2: rgba(244, 250, 255, 0.8);
+  --bg-elev-3: rgba(232, 242, 252, 0.85);
+  --bg-code: rgba(240, 247, 255, 0.7);
+  --bg-inline-code: rgba(13, 122, 134, 0.1);
+  --code-head: rgba(13, 122, 134, 0.06);
+  --brand-tile: rgba(60, 200, 210, 0.16);
+
+  --bg-hover: #0d7a86;
+  --bg-selected: rgba(13, 122, 134, 0.14);
+  --text-selected: #0c3f45;
+  --text-selected-muted: #3f6b72;
+
+  --text-1: #172236;
+  --text-2: #2b3a52;
+  --text-3: #4a5b75;
+  --text-4: #6a7b95;
+  --text-disabled: #9aabc0;
+
+  --border-soft: rgba(60, 115, 160, 0.16);
+  --border: rgba(60, 115, 160, 0.24);
+  --border-strong: rgba(60, 115, 160, 0.36);
+
+  --accent: #0d7a86;
+  --accent-fg: #f5fdff;
+  --accent-hover: #0a6b76;
+  --accent-pressed: #085a64;
+  --focus-ring: #0d7a86;
+  --blue: #0d7a86;
+  --link: #0d7a86;
+  --glow: #0d7a86;
+
+  --bg-user: rgba(255, 255, 255, 0.86);
+  --text-user: #172236;
+  --user-bubble-border: rgba(60, 115, 160, 0.24);
+
+  --green: #1f7a5c;
+  --red: #b5483a;
+  --yellow: #a3762a;
+  --purple: #6b5a8c;
+  --on-danger: #f5fdff;
+
+  --diff-add-bg: rgba(31, 122, 92, 0.12);
+  --diff-add-fg: #1f7a5c;
+  --diff-del-bg: rgba(181, 72, 58, 0.12);
+  --diff-del-fg: #b5483a;
+
+  --tok-kw: #0d7a86;
+  --tok-str: #1f7a5c;
+  --tok-num: #a3762a;
+
+  --shadow-color: rgba(40, 80, 120, 0.16);
+  --shadow-pop: 0 12px 30px var(--shadow-color);
+  --shadow-composer: 0 14px 34px var(--shadow-color);
+  --shadow-soft: 0 4px 12px var(--shadow-color);
+  --shadow-accent: 0 6px 16px rgba(13, 122, 134, 0.18);
+  --shadow-accent-strong: 0 10px 22px rgba(13, 122, 134, 0.24);
+  --shadow-raised: 0 8px 20px var(--shadow-color);
+  --shadow-card: 0 8px 20px var(--shadow-color);
+  --shadow-modal: 0 20px 44px rgba(40, 80, 120, 0.24);
+  --shadow-drawer: 12px 0 28px rgba(40, 80, 120, 0.2);
+  --overlay-btn: #172236;
+  --on-overlay: #f5fdff;
+  --ring-track: rgba(23, 34, 54, 0.2);
+  --scroll-thumb: rgba(60, 115, 160, 0.32);
+  --scroll-thumb-hover: #0d7a86;
+  --scrim: rgba(16, 30, 45, 0.55);
+}
+
+html[data-skin="aurora"][data-theme="dark"] {
+  color-scheme: dark;
+
+  --aurora-bg: #07101f;
+  --aurora-layers:
+    radial-gradient(ellipse 70% 50% at 12% 8%, rgba(40, 210, 200, 0.28) 0%, transparent 55%),
+    radial-gradient(ellipse 55% 60% at 88% 18%, rgba(140, 80, 230, 0.32) 0%, transparent 58%),
+    radial-gradient(ellipse 50% 45% at 70% 88%, rgba(50, 120, 230, 0.22) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 40% at 30% 70%, rgba(30, 200, 170, 0.16) 0%, transparent 55%),
+    linear-gradient(180deg, #081222 0%, #0a1630 48%, #07101c 100%);
+  --aurora-tile: rgba(60, 200, 210, 0.18);
+  --aurora-line: rgba(140, 180, 230, 0.2);
+  --aurora-line-strong: rgba(126, 236, 243, 0.38);
+  --aurora-ring: rgba(110, 220, 230, 0.55);
+  --aurora-hi: rgba(255, 255, 255, 0.08);
+  --aurora-sidebar:
+    radial-gradient(120% 60% at 18% 0%, rgba(60, 200, 210, 0.14) 0%, transparent 60%),
+    linear-gradient(180deg, rgba(22, 42, 72, 0.94) 0%, rgba(9, 18, 34, 0.9) 100%);
+  --aurora-newchat: linear-gradient(180deg, rgba(40, 120, 160, 0.45), rgba(20, 60, 110, 0.55));
+  --aurora-newchat-hover: linear-gradient(180deg, rgba(52, 140, 180, 0.5), rgba(26, 74, 128, 0.6));
+  --aurora-panel: rgba(10, 20, 40, 0.86);
+  --aurora-panel-strong: rgba(10, 20, 40, 0.92);
+  --aurora-panel-blur: rgba(12, 24, 48, 0.7);
+  --aurora-bubble: rgba(12, 24, 48, 0.82);
+  --aurora-bubble-blur: rgba(14, 28, 56, 0.46);
+  --aurora-composer: rgba(10, 20, 40, 0.86);
+  --aurora-composer-blur: rgba(12, 24, 48, 0.55);
+  --aurora-session: rgba(16, 36, 70, 0.92);
+  --aurora-session-blur: rgba(20, 44, 80, 0.6);
+  --aurora-send: #5ad0d8;
+  --aurora-send-hover: #74dde3;
+  --aurora-send-press: #3fb8c0;
+  --aurora-send-ink: #072028;
+
+  --ink: rgba(140, 180, 230, 0.24);
+  --paper: rgba(10, 20, 40, 0.82);
+
+  --bg-app: #07101f;
+  --bg-chat: transparent;
+  --bg-sidebar: rgba(7, 14, 28, 0.88);
+  --bg-elev: rgba(10, 20, 40, 0.86);
+  --bg-elev-2: rgba(16, 32, 60, 0.9);
+  --bg-elev-3: rgba(6, 12, 24, 0.9);
+  --bg-code: rgba(6, 14, 30, 0.75);
+  --bg-inline-code: rgba(232, 238, 252, 0.12);
+  --code-head: rgba(232, 238, 252, 0.08);
+  --brand-tile: rgba(60, 200, 210, 0.18);
+
+  --bg-hover: #5ad0d8;
+  --bg-selected: rgba(16, 36, 70, 0.92);
+  --text-selected: #f2f7ff;
+  --text-selected-muted: #a9bbd8;
+
+  --text-1: #e8eefc;
+  --text-2: #c9d6ee;
+  --text-3: #93a3c4;
+  --text-4: #7a8bab;
+  --text-disabled: #566178;
+
+  --border-soft: rgba(140, 180, 230, 0.12);
+  --border: rgba(140, 180, 230, 0.2);
+  --border-strong: rgba(160, 200, 240, 0.32);
+
+  --accent: #5ad0d8;
+  --accent-fg: #072028;
+  --accent-hover: #74dde3;
+  --accent-pressed: #3fb8c0;
+  --focus-ring: #5ad0d8;
+  --blue: #7fb0ff;
+  --link: #7ee8ee;
+  --glow: #5ad0d8;
+
+  --bg-user: rgba(12, 24, 48, 0.82);
+  --text-user: #f3f7ff;
+  --user-bubble-border: rgba(150, 200, 255, 0.22);
+
+  --green: #9ee7c8;
+  --red: #e08a7a;
+  --yellow: #d9b36a;
+  --purple: #b3a1d4;
+  --on-danger: #072028;
+
+  --diff-add-bg: rgba(158, 231, 200, 0.14);
+  --diff-add-fg: #9ee7c8;
+  --diff-del-bg: rgba(224, 138, 122, 0.14);
+  --diff-del-fg: #e08a7a;
+
+  --tok-kw: #7ee8ee;
+  --tok-str: #9ee7c8;
+  --tok-num: #d9b36a;
+
+  --shadow-color: rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 12px 30px var(--shadow-color);
+  --shadow-composer: 0 14px 34px var(--shadow-color);
+  --shadow-soft: 0 4px 12px var(--shadow-color);
+  --shadow-accent: 0 6px 16px rgba(90, 208, 216, 0.2);
+  --shadow-accent-strong: 0 10px 22px rgba(90, 208, 216, 0.26);
+  --shadow-raised: 0 8px 20px var(--shadow-color);
+  --shadow-card: 0 8px 20px var(--shadow-color);
+  --shadow-modal: 0 20px 44px rgba(0, 0, 0, 0.55);
+  --shadow-drawer: 12px 0 28px rgba(0, 0, 0, 0.5);
+  --overlay-btn: #e8eefc;
+  --on-overlay: #07101f;
+  --ring-track: rgba(232, 238, 252, 0.24);
+  --scroll-thumb: rgba(140, 180, 230, 0.35);
+  --scroll-thumb-hover: #5ad0d8;
+  --scrim: rgba(2, 6, 14, 0.72);
+}
+
+/* 窄屏：外壳贴边，侧栏恢复成贴边抽屉，只留右侧圆角 */
+@media (max-width: 900px) {
+  html[data-skin="aurora"] .app { padding: 0; gap: 0; }
+  html[data-skin="aurora"] .sidebar {
+    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+    box-shadow: var(--shadow-drawer);
   }
 }
