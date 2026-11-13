@@ -1781,6 +1781,18 @@ html[data-mode="system"] .theme-mode-system { display: block; }
   border-radius: 0;
   border: 1px solid var(--border);
 }
+.file-preview-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+.file-preview-frame {
+  display: block;
+  width: 100%;
+  height: min(68vh, 640px);
+  border: 1px solid var(--border);
+  background: #fff;
+}
+.file-preview-source pre { max-height: min(68vh, 640px); }
+.modal.modal-wide { width: min(1100px, 94vw); max-height: 92vh; }
+.modal.modal-wide .file-preview-frame { height: min(78vh, 980px); }
+.modal.modal-wide .file-preview-source pre { max-height: min(78vh, 980px); }
 
 
 /* ----------------------------- menus ------------------------------ */

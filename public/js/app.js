@@ -4598,8 +4598,10 @@ async function openWorkspaceFile(path) {
     return;
   }
   const downloadHref = fileApiUrl(path, "download");
+  const isWebPage = /\.(html?|svg)$/i.test(meta.name || basename(path));
   let body = "";
-  if (meta.note) body += '<p class="file-preview-note">' + escapeHtml(meta.note) + "</p>";
+  let webText = null;
+  if (meta.note && !isWebPage) body += '<p class="file-preview-note">' + escapeHtml(meta.note) + "</p>";
   if (meta.preview === "image") {
     body += '<img src="' + escapeHtml(fileApiUrl(path, "preview")) + '" alt="' + escapeHtml(meta.name || "") + '">';
   } else if (meta.preview === "text") {
@@ -4608,7 +4610,21 @@ async function openWorkspaceFile(path) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "预览失败");
       if (data.note && data.note !== meta.note) body += '<p class="file-preview-note">' + escapeHtml(data.note) + "</p>";
-      if (data.preview === "text") body += "<pre>" + escapeHtml(data.text || "") + "</pre>";
+      if (data.preview === "text") {
+        if (isWebPage) {
+          webText = data.text || "";
+          body +=
+            '<p class="file-preview-note">沙箱预览：页面里的脚本被隔离，读不到本界面的数据。</p>' +
+            '<div class="file-preview-tabs">' +
+            '<button type="button" class="btn primary" data-view="page">网页预览</button>' +
+            '<button type="button" class="btn" data-view="source">源码</button>' +
+            "</div>" +
+            '<div class="file-preview-page"></div>' +
+            '<div class="file-preview-source" hidden></div>';
+        } else {
+          body += "<pre>" + escapeHtml(data.text || "") + "</pre>";
+        }
+      }
       else if (data.note) body += '<p class="file-preview-note">' + escapeHtml(data.note) + "</p>";
     } catch (error) {
       toast("预览失败：" + error.message, "error");
@@ -4617,7 +4633,7 @@ async function openWorkspaceFile(path) {
   } else if (!meta.note) {
     body += '<p class="file-preview-note">此格式不在本界面预览，请下载后用本机应用打开。</p>';
   }
-  openModal({
+  const handle = openModal({
     title: (meta.name || basename(path)) + (meta.size != null ? " · " + formatSize(meta.size) : ""),
     body: '<div class="file-preview">' + body + "</div>",
     actions: [
@@ -4637,6 +4653,24 @@ async function openWorkspaceFile(path) {
       { label: "关闭" },
     ],
   });
+  if (webText !== null) {
+    handle.card.classList.add("modal-wide");
+    const pageBox = handle.card.querySelector(".file-preview-page");
+    const sourceBox = handle.card.querySelector(".file-preview-source");
+    const iframe = document.createElement("iframe");
+    iframe.className = "file-preview-frame";
+    iframe.setAttribute("sandbox", "allow-scripts");
+    iframe.srcdoc = webText;
+    pageBox.appendChild(iframe);
+    sourceBox.innerHTML = "<pre>" + escapeHtml(webText) + "</pre>";
+    const viewButtons = handle.card.querySelectorAll(".file-preview-tabs [data-view]");
+    const setView = (view) => {
+      pageBox.hidden = view !== "page";
+      sourceBox.hidden = view !== "source";
+      for (const b of viewButtons) b.classList.toggle("primary", b.getAttribute("data-view") === view);
+    };
+    for (const b of viewButtons) b.addEventListener("click", () => setView(b.getAttribute("data-view")));
+  }
 }
 
 function openModal(options) {
