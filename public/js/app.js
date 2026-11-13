@@ -3405,7 +3405,7 @@ function queueItemHtml(item, index) {
     ' aria-label="插入当前任务" title="插入当前任务：不再等下一轮，直接交给正在运行的任务"' +
     (state.queueBusy ? " disabled" : "") + ">" + ICON("bolt") + "插入任务</button>" +
     '<button class="queue-act cancel" type="button" data-act="cancel-queued" data-queue-index="' + index + '"' +
-    ' aria-label="取消排队" title="取消排队：这条不再发送"' +
+    ' aria-label="取消排队" title="取消排队：退回输入框，暂不发送"' +
     (state.queueBusy ? " disabled" : "") + ">" + ICON("x") + "取消</button>" +
     "</span>";
   return (
@@ -3534,8 +3534,66 @@ async function sendQueuedRaw(raw, behavior, images) {
   return api("/api/chat", body);
 }
 
+// clear_queue 只返回文本；服务端会把暂存图片一起带回来，配合本页缓存尽量把每条
+// 排队消息的图都拿到（刷新过页面后本页缓存是空的，只能靠服务端）。
+function collectQueuedImages(data, raws) {
+  const map = new Map();
+  for (const raw of raws || []) {
+    if (typeof raw !== "string" || map.has(raw)) continue;
+    const local = takeQueuedImages(raw);
+    const fromServer = data && data.images && data.images[raw];
+    map.set(raw, fromServer && fromServer.length ? fromServer : local);
+  }
+  return map;
+}
+
+// 把排队里的消息安全地放回输入框：不覆盖已经打好的草稿，图片也一并带回来。
+function restoreQueuedToComposer(raw, images) {
+  const text = visiblePromptText(raw);
+  if (text) {
+    const current = el.input.value;
+    el.input.value = current.trim() ? current.replace(/\s+$/, "") + "\n" + text : text;
+  }
+  for (const image of images || []) {
+    if (!image || !image.data) continue;
+    const mime = image.mimeType || image.mime || "image/png";
+    if (state.attachments.some((item) => item.kind !== "file" && item.data === image.data)) continue;
+    state.attachments.push({
+      kind: "image",
+      data: image.data,
+      mime,
+      url: "data:" + mime + ";base64," + image.data,
+      name: "图片",
+    });
+  }
+  renderAttachments();
+  autosize();
+  updateSendState();
+  el.input.focus();
+}
+
+// 把除当前条目以外的队列按原顺序放回去；单条失败不中断，交给调用方回填输入框。
+async function resendQueued(queues, images) {
+  const failed = [];
+  for (const raw of queues.steering) {
+    try {
+      await sendQueuedRaw(raw, "steer", images.get(raw) || []);
+    } catch (error) {
+      failed.push({ raw, error });
+    }
+  }
+  for (const raw of queues.followUp) {
+    try {
+      await sendQueuedRaw(raw, "followUp", images.get(raw) || []);
+    } catch (error) {
+      failed.push({ raw, error });
+    }
+  }
+  return failed;
+}
+
 // 把一条 followUp 改成 steer：pi 没有「单条出队」接口，只能用 clear_queue
-// 取出完整队列，再把其余条目按原顺序放回去。图片来自本页发送时的缓存。
+// 取出完整队列，再把其余条目按原顺序放回去。
 async function insertQueuedItem(item) {
   if (!item || !state.key || state.queueBusy) return;
   if (item.pending) {
@@ -3557,18 +3615,25 @@ async function insertQueuedItem(item) {
       followUp: Array.isArray(data.followUp) ? data.followUp.slice() : [],
     };
     removeQueuedOccurrence(queues, item.raw);
+    const images = collectQueuedImages(data, [item.raw, ...queues.steering, ...queues.followUp]);
     state.queued.steering = queues.steering;
     state.queued.followUp = queues.followUp;
     removeLocalByRaw(item.raw);
     renderQueue();
 
-    const chosenImages = takeQueuedImages(item.raw);
-    await sendQueuedRaw(item.raw, "steer", chosenImages);
-    for (const raw of queues.steering) await sendQueuedRaw(raw, "steer");
-    for (const raw of queues.followUp) await sendQueuedRaw(raw, "followUp");
-    // 插入当前任务的消息已经真正发出，可以像普通发送一样先占一个乐观气泡。
-    addOptimisticUser(item.raw, chosenImages);
-    toast("已插入当前任务");
+    const chosenImages = images.get(item.raw) || [];
+    const failed = [];
+    try {
+      await sendQueuedRaw(item.raw, "steer", chosenImages);
+    } catch (error) {
+      failed.push({ raw: item.raw, error });
+    }
+    failed.push(...(await resendQueued(queues, images)));
+    for (const entry of failed) restoreQueuedToComposer(entry.raw, images.get(entry.raw) || []);
+    // 只有真正插入成功的那条才占乐观气泡；失败的已回到输入框。
+    if (!failed.some((entry) => entry.raw === item.raw)) addOptimisticUser(item.raw, chosenImages);
+    if (failed.length) toast("插入未全部完成，" + failed.length + " 条已放回输入框", "error");
+    else toast("已插入当前任务");
   } catch (error) {
     toast("插入失败：" + error.message, "error");
   } finally {
@@ -3598,14 +3663,18 @@ async function cancelQueuedItem(item) {
       followUp: Array.isArray(data.followUp) ? data.followUp.slice() : [],
     };
     removeQueuedOccurrence(queues, item.raw);
+    const images = collectQueuedImages(data, [item.raw, ...queues.steering, ...queues.followUp]);
     state.queued.steering = queues.steering;
     state.queued.followUp = queues.followUp;
     removeLocalByRaw(item.raw);
     dropQueuedImages(item.raw);
     renderQueue();
-    for (const raw of queues.steering) await sendQueuedRaw(raw, "steer");
-    for (const raw of queues.followUp) await sendQueuedRaw(raw, "followUp");
-    toast("已取消排队");
+    const failed = await resendQueued(queues, images);
+    for (const entry of failed) restoreQueuedToComposer(entry.raw, images.get(entry.raw) || []);
+    // 「取消排队」不丢内容：这条退回输入框，草稿不会被覆盖。
+    restoreQueuedToComposer(item.raw, images.get(item.raw) || []);
+    if (failed.length) toast("取消未全部完成，" + failed.length + " 条已放回输入框", "error");
+    else toast("已取消排队，内容已放回输入框");
   } catch (error) {
     toast("取消排队失败：" + error.message, "error");
   } finally {

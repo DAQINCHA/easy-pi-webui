@@ -162,6 +162,11 @@ const sessionExtras = new Set();
 const MAX_SESSION_EXTRAS = 5;
 const SESSION_PAGE_SIZE = 80;
 const SESSION_PAGE_MAX = 1000;
+// 运行中排队发出的消息只以文本进 pi 的队列（clear_queue 也只返回文本），
+// 但界面「插入当前任务 / 取消排队」时会清空再逐条重发。按会话暂存最近排队的
+// 图片，重发时前端没带图（例如刷新过页面）就补回来。
+const MAX_QUEUED_IMAGE_ENTRIES = 16;
+const MAX_QUEUED_IMAGE_BYTES = 32 * 1024 * 1024;
 let shuttingDown = false;
 
 const ALLOWED_COMMANDS = new Set([
@@ -344,6 +349,26 @@ function readBody(req, limit = 32 * 1024 * 1024) {
   });
 }
 
+function queuedImageBytes(images) {
+  let total = 0;
+  for (const image of images || []) {
+    if (image && typeof image.data === "string") total += image.data.length;
+  }
+  return total;
+}
+
+function rememberQueuedImages(bridge, message, images) {
+  if (!bridge.queuedImages) bridge.queuedImages = new Map();
+  bridge.queuedImages.delete(message);
+  bridge.queuedImages.set(message, images);
+  while (
+    bridge.queuedImages.size > MAX_QUEUED_IMAGE_ENTRIES ||
+    queuedImageBytes([...bridge.queuedImages.values()].flat()) > MAX_QUEUED_IMAGE_BYTES
+  ) {
+    bridge.queuedImages.delete(bridge.queuedImages.keys().next().value);
+  }
+}
+
 function broadcast(bridge, record, seq) {
   const payload = "id: " + seq + "\nevent: pi\ndata: " + JSON.stringify(record) + "\n\n";
   for (const res of bridge.clients) {
@@ -397,6 +422,7 @@ function setRunning(bridge, running, finished = true, errored) {
 function wire(bridge) {
   bridge.clients = new Set();
   bridge.pendingUi = new Map();
+  bridge.queuedImages = new Map();
   bridge.streaming = false;
   bridge.hadError = false;
 
@@ -427,6 +453,10 @@ function wire(bridge) {
     if (record.type === "extension_ui_request") {
       const dialog = ["select", "confirm", "input", "editor"].includes(record.method);
       if (dialog) bridge.pendingUi.set(record.id, record);
+    }
+    // 排队消息真正写进历史后，就不用再留着它的图片了。
+    if (record.type === "message_end" && record.message?.role === "user") {
+      bridge.queuedImages.delete(messageText(record.message));
     }
     // pi emits this before the set_session_name response; invalidate here so a
     // refresh triggered by the event cannot read the previous list from cache.
@@ -1578,10 +1608,16 @@ async function handleApi(req, res, url) {
       });
     }
     const payload = { type: "prompt", message };
-    if (body.images?.length) payload.images = body.images;
+    if (body.images?.length) {
+      payload.images = body.images;
+    } else if (body.behavior && bridge.queuedImages.has(message)) {
+      // 重新排队时前端可能已经丢了图片（刷新过页面 / 缓存被取走），用暂存补回来。
+      payload.images = bridge.queuedImages.get(message);
+    }
     if (body.behavior) payload.streamingBehavior = body.behavior;
     const started = await bridge.send(payload);
     if (!started.success) return json(res, 400, { error: started.error || "prompt rejected" });
+    if (body.behavior && body.images?.length) rememberQueuedImages(bridge, message, body.images);
     return json(res, 200, { disposition: started.data?.disposition || "started" });
   }
 
@@ -1592,6 +1628,16 @@ async function handleApi(req, res, url) {
       return json(res, 400, { error: "command not allowed: " + name });
     }
     const response = await bridge.send(routeCommand(name, body.command), name === "compact" ? 180000 : 60000);
+    // clear_queue 只返回文本；把暂存的图片一并带回去，前端重排 / 退回输入框才不丢图。
+    if (name === "clear_queue" && response.success && response.data) {
+      const texts = [...(response.data.steering || []), ...(response.data.followUp || [])];
+      const images = {};
+      for (const text of texts) {
+        const stored = bridge.queuedImages && bridge.queuedImages.get(text);
+        if (stored && stored.length) images[text] = stored;
+      }
+      response.data.images = images;
+    }
     return json(res, 200, { success: response.success, data: response.data || null, error: response.error || null });
   }
 
