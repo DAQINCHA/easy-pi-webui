@@ -2404,6 +2404,32 @@ body.resizing .sidebar { transition: none; }
   font-variant-numeric: tabular-nums;
 }
 
+/* ------------------------ 皮肤：单色反差 ------------------------
+ * 只补工作区按钮的悬停反馈：反相成柠黄 + 硬阴影抬起，符合硬边语言。 */
+html[data-skin="classic"] .workspace {
+  transition:
+    background .16s var(--ease),
+    border-color .16s var(--ease),
+    box-shadow .16s var(--ease),
+    transform .12s var(--ease);
+}
+html[data-skin="classic"] .workspace:hover {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--ink);
+  box-shadow: 5px 5px 0 var(--shadow-color);
+  transform: translate(-2px, -2px);
+}
+html[data-skin="classic"] .workspace:hover .ws-name,
+html[data-skin="classic"] .workspace:hover .ws-icon,
+html[data-skin="classic"] .workspace:hover .ws-caret {
+  color: var(--accent-fg);
+}
+html[data-skin="classic"] .workspace:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color);
+}
+
 /* ------------------------ 皮肤：纸上工作室 ------------------------
  * 暖纸底 + 细线 + 赭红点缀，排版感优先于卡片感。
  * 形状：2px 圆角、1px 细边；阴影色退成纸面同族的浅棕，几乎不可见。
@@ -2412,6 +2438,18 @@ html[data-skin="paper"] {
   --radius: 2px;
   --radius-lg: 4px;
   --border-width: 1px;
+}
+
+/* 工作区按钮：沿用本皮肤的「赭红底 + 纸色字」悬停语义 */
+html[data-skin="paper"] .workspace:hover {
+  background: var(--bg-hover);
+  color: var(--accent-fg);
+  border-color: var(--ink);
+}
+html[data-skin="paper"] .workspace:hover .ws-name,
+html[data-skin="paper"] .workspace:hover .ws-icon,
+html[data-skin="paper"] .workspace:hover .ws-caret {
+  color: var(--accent-fg);
 }
 
 html[data-skin="paper"][data-theme="light"] {
@@ -2595,6 +2633,18 @@ html[data-skin="sea-salt"] .send.is-stop,
 html[data-skin="sea-salt"] .send.is-stop:hover {
   background: var(--red);
   color: var(--on-danger);
+}
+
+/* 工作区按钮：沿用本皮肤的「深青底 + 纸白字」悬停语义 */
+html[data-skin="sea-salt"] .workspace:hover {
+  background: var(--bg-hover);
+  color: var(--accent-fg);
+  border-color: var(--ink);
+}
+html[data-skin="sea-salt"] .workspace:hover .ws-name,
+html[data-skin="sea-salt"] .workspace:hover .ws-icon,
+html[data-skin="sea-salt"] .workspace:hover .ws-caret {
+  color: var(--accent-fg);
 }
 
 /* 本轮文件卡：列表不留上下内边距，悬停底色才能铺满整张卡片，
@@ -3493,11 +3543,23 @@ html[data-skin="aurora"] .workspace {
   border-radius: 12px;
   color: var(--text-1);
 }
-html[data-skin="aurora"] .search:hover,
-html[data-skin="aurora"] .workspace:hover {
+html[data-skin="aurora"] .search:hover {
   background: var(--bg-elev);
   border-color: var(--aurora-line-strong);
 }
+/* 工作区按钮：玻璃提亮 + 一圈发光边，悬停时图标转成主题青 */
+html[data-skin="aurora"] .workspace {
+  transition:
+    background .16s var(--ease),
+    border-color .16s var(--ease),
+    box-shadow .16s var(--ease);
+}
+html[data-skin="aurora"] .workspace:hover {
+  background: var(--bg-elev-2);
+  border-color: var(--aurora-line-strong);
+  box-shadow: 0 0 0 1px var(--aurora-line-strong), 0 8px 20px var(--shadow-color);
+}
+html[data-skin="aurora"] .workspace:hover .ws-icon { color: var(--accent); }
 html[data-skin="aurora"] .session-item { border-radius: 12px; }
 html[data-skin="aurora"] .session-item.active {
   background: var(--aurora-session);
