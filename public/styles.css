@@ -2554,8 +2554,8 @@ html[data-skin="paper"][data-theme="dark"] {
   --scrim: #0d0a07d9;
 }
 
-/* ------------------------ 皮肤：海盐蓝 ------------------------
- * 海盐蓝灰底 + 深青点缀 + 沙色交互件，保留细线与扁平层次。
+/* ------------------------ 皮肤：蓝调海盐 ------------------------
+ * 蓝调海盐灰底 + 深青点缀 + 沙色交互件，保留细线与扁平层次。
  * 阴影仍是「内高光 + 软投影」的瓷面语言，圆角 16~28px。
  * 这一套是原「薄荷陶瓷 v1」的平涂版，配色整体换成冷蓝 + 沙色。 */
 html[data-skin="sea-salt"] {
@@ -2703,7 +2703,7 @@ html[data-skin="sea-salt"][data-theme="dark"] {
   --code-head: #dbe7ed14;
   --brand-tile: #cfe4ee;
 
-  /* 悬停 = 亮海盐蓝底 + 深字，浅色模式深青悬停的夜版 */
+  /* 悬停 = 亮蓝底 + 深字，浅色模式深青悬停的夜版 */
   --bg-hover: #7fbdd2;
   --bg-selected: #1d3240;
   --text-selected: #dbe9f3;
@@ -2768,6 +2768,25 @@ html[data-skin="sea-salt"][data-theme="dark"] {
   --scroll-thumb: #394e5a;
   --scroll-thumb-hover: #7fbdd2;
   --scrim: #081014d9;
+}
+
+/* 外壳留缝：侧栏不顶天立地，和另外两套悬浮皮肤一致 */
+html[data-skin="sea-salt"] .app {
+  padding: 12px;
+  gap: 12px;
+}
+html[data-skin="sea-salt"] .app.sidebar-hidden { gap: 0; }
+html[data-skin="sea-salt"] .sidebar {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--ink);
+}
+/* 扁平皮肤：悬浮只靠 12px 缝 + 1px 细边，不加投影 */
+@media (max-width: 900px) {
+  html[data-skin="sea-salt"] .app { padding: 0; gap: 0; }
+  html[data-skin="sea-salt"] .sidebar {
+    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+    box-shadow: var(--shadow-drawer);
+  }
 }
 
 /* ------------------------ 皮肤：薄荷陶瓷 ------------------------
@@ -3432,6 +3451,7 @@ html[data-skin="aurora"] .topbar {
   border-bottom-color: var(--border-soft);
 }
 /* 悬浮侧栏的右边缘比侧栏轨道向右多出外壳内边距，拖动热区跟着补上 */
+html[data-skin="sea-salt"] .sidebar-resizer,
 html[data-skin="mint"] .sidebar-resizer,
 html[data-skin="aurora"] .sidebar-resizer {
   left: calc(var(--sidebar-w) + 9px);
